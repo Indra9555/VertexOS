@@ -15,6 +15,7 @@ kernel_start:
     mov ax, 0x0720
 
 .clear_screen:
+
     mov [edi], ax
     add edi, 2
     loop .clear_screen
@@ -48,10 +49,32 @@ kernel_start:
 
 
     ; ----------------------------------------
+    ; Initialize Interrupt Descriptor Table
+    ; ----------------------------------------
+
+    call idt_init
+
+
+    ; ----------------------------------------
+    ; Enable interrupts
+    ; ----------------------------------------
+
+    sti
+
+
+    ; ----------------------------------------
+    ; Test software interrupt 0x21
+    ; ----------------------------------------
+
+    int 0x21
+
+
+    ; ----------------------------------------
     ; Kernel finished
     ; ----------------------------------------
 
 .hang:
+
     cli
     hlt
     jmp .hang
@@ -83,6 +106,7 @@ print_string:
     jmp .next_char
 
 .done:
+
     ret
 
 
