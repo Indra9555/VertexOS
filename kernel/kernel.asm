@@ -1,7 +1,10 @@
 [bits 32]
-[org 0x1000]
+[section .text]
 
-start:
+global kernel_start
+extern idt_init
+
+kernel_start:
 
     ; ----------------------------------------
     ; Clear the VGA text screen
