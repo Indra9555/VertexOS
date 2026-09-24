@@ -3,6 +3,10 @@
 section .text
 
 global keyboard_handler
+global input_buffer
+global input_length
+global command_ready
+global clear_input_buffer
 
 
 ; ============================================================
@@ -11,6 +15,13 @@ global keyboard_handler
 ; IRQ1 = Keyboard
 ; Keyboard data port = 0x60
 ; PIC master command port = 0x20
+;
+; Features:
+;   - Scancode -> ASCII conversion
+;   - Shift support
+;   - Input buffer
+;   - Backspace
+;   - Enter
 ; ============================================================
 
 
@@ -29,8 +40,6 @@ keyboard_handler:
 
     ; --------------------------------------------------------
     ; Ignore key-release scancodes
-    ;
-    ; Bit 7 = 1 means key released
     ; --------------------------------------------------------
 
     test al, 0x80
@@ -38,9 +47,7 @@ keyboard_handler:
 
 
     ; --------------------------------------------------------
-    ; Check SHIFT key
-    ; Left Shift  = 0x2A
-    ; Right Shift = 0x36
+    ; Check SHIFT
     ; --------------------------------------------------------
 
     cmp al, 0x2A
@@ -51,7 +58,7 @@ keyboard_handler:
 
 
     ; --------------------------------------------------------
-    ; Check ENTER
+    ; ENTER
     ; --------------------------------------------------------
 
     cmp al, 0x1C
@@ -59,7 +66,7 @@ keyboard_handler:
 
 
     ; --------------------------------------------------------
-    ; Check BACKSPACE
+    ; BACKSPACE
     ; --------------------------------------------------------
 
     cmp al, 0x0E
@@ -84,10 +91,9 @@ keyboard_handler:
     je .normal_character
 
 
-    ; Shifted character
     mov al, [shift_table + eax]
 
-    jmp .print_character
+    jmp .character_ready
 
 
 .normal_character:
@@ -95,7 +101,7 @@ keyboard_handler:
     mov al, [keyboard_table + eax]
 
 
-.print_character:
+.character_ready:
 
     ; Ignore unmapped scancodes
     test al, al
@@ -103,7 +109,47 @@ keyboard_handler:
 
 
     ; --------------------------------------------------------
-    ; Print character to VGA
+    ; Don't accept characters after Enter
+    ; until kernel clears the buffer
+    ; --------------------------------------------------------
+
+    cmp byte [command_ready], 1
+    je .done
+
+
+    ; --------------------------------------------------------
+    ; Check input buffer limit
+    ;
+    ; Maximum = 79 characters
+    ; One byte is reserved for null terminator.
+    ; --------------------------------------------------------
+
+    movzx ecx, byte [input_length]
+
+    cmp ecx, 79
+    jae .done
+
+
+    ; --------------------------------------------------------
+    ; Store character in input buffer
+    ; --------------------------------------------------------
+
+    mov [input_buffer + ecx], al
+
+    inc byte [input_length]
+
+
+    ; --------------------------------------------------------
+    ; Null terminate string
+    ; --------------------------------------------------------
+
+    movzx ecx, byte [input_length]
+
+    mov byte [input_buffer + ecx], 0
+
+
+    ; --------------------------------------------------------
+    ; Print character on VGA
     ; --------------------------------------------------------
 
     mov edi, [cursor_position]
@@ -118,6 +164,10 @@ keyboard_handler:
     jmp .done
 
 
+; ============================================================
+; SHIFT PRESS
+; ============================================================
+
 .shift_press:
 
     mov byte [shift_pressed], 1
@@ -125,13 +175,17 @@ keyboard_handler:
     jmp .done
 
 
+; ============================================================
+; KEY RELEASE
+; ============================================================
+
 .key_release:
 
-    ; Left Shift release = 0xAA
+    ; Left Shift release
     cmp al, 0xAA
     je .shift_release
 
-    ; Right Shift release = 0xB6
+    ; Right Shift release
     cmp al, 0xB6
     je .shift_release
 
@@ -151,18 +205,33 @@ keyboard_handler:
 
 .enter:
 
-    mov edi, [cursor_position]
+    ; Don't accept another Enter until command is processed
+    cmp byte [command_ready], 1
+    je .done
 
-    ; Calculate next line.
-    ; VGA row size = 80 characters = 160 bytes.
-    ;
-    ; Keep the cursor inside the text area.
-    ;
+
+    ; --------------------------------------------------------
+    ; Null terminate input buffer
+    ; --------------------------------------------------------
+
+    movzx ecx, byte [input_length]
+
+    mov byte [input_buffer + ecx], 0
+
+    mov byte [command_ready], 1
+
+
+    ; --------------------------------------------------------
+    ; Move cursor to next VGA line
+    ; --------------------------------------------------------
+
+    mov edi, [cursor_position]
 
     sub edi, 0xB8000
 
     mov eax, edi
     xor edx, edx
+
     mov ebx, 160
     div ebx
 
@@ -183,23 +252,42 @@ keyboard_handler:
 
 .backspace:
 
+    ; Don't modify a completed command
+    cmp byte [command_ready], 1
+    je .done
+
+
+    ; Check if buffer is empty
+    cmp byte [input_length], 0
+    je .done
+
+
+    ; --------------------------------------------------------
+    ; Remove last character from buffer
+    ; --------------------------------------------------------
+
+    dec byte [input_length]
+
+    movzx ecx, byte [input_length]
+
+    mov byte [input_buffer + ecx], 0
+
+
+    ; --------------------------------------------------------
+    ; Move VGA cursor backwards
+    ; --------------------------------------------------------
+
     mov edi, [cursor_position]
 
-    cmp edi, 0xB8000
+    cmp edi, 0xB81E0
     jbe .done
-
-
-    ; Move one character backwards
 
     sub edi, 2
 
 
-    ; Don't erase the status lines
-    cmp edi, 0xB81E0
-    jb .done
-
-
-    ; Clear character
+    ; --------------------------------------------------------
+    ; Clear character on screen
+    ; --------------------------------------------------------
 
     mov byte [edi], ' '
     mov byte [edi + 1], 0x0F
@@ -210,12 +298,11 @@ keyboard_handler:
 
 
 ; ============================================================
-; Send End Of Interrupt to PIC
+; Send End Of Interrupt
 ; ============================================================
 
 .done:
 
-    ; IRQ1 came from the master PIC.
     mov al, 0x20
     out 0x20, al
 
@@ -225,10 +312,51 @@ keyboard_handler:
 
 
 ; ============================================================
+; Clear input buffer
+;
+; Called by kernel after processing a command.
+; ============================================================
+
+clear_input_buffer:
+
+    pushad
+
+    mov byte [input_length], 0
+    mov byte [command_ready], 0
+
+    mov byte [input_buffer], 0
+
+    popad
+
+    ret
+
+
+; ============================================================
 ; Keyboard state
 ; ============================================================
 
 shift_pressed db 0
+
+
+; ============================================================
+; Input buffer
+;
+; Maximum 79 characters + null terminator
+; ============================================================
+
+input_buffer:
+
+    times 80 db 0
+
+
+input_length:
+
+    db 0
+
+
+command_ready:
+
+    db 0
 
 
 ; ============================================================
@@ -240,7 +368,9 @@ shift_pressed db 0
 ; Row 3 = 0xB81E0
 ; ============================================================
 
-cursor_position dd 0xB81E0
+cursor_position:
+
+    dd 0xB81E0
 
 
 ; ============================================================
@@ -251,25 +381,41 @@ keyboard_table:
 
     db 0
     db 27
+
     db '1','2','3','4','5','6','7','8','9','0'
+
     db '-','='
+
     db 8
     db 9
+
     db 'q','w','e','r','t','y','u','i','o','p'
+
     db '[',']'
+
     db 13
     db 0
+
     db 'a','s','d','f','g','h','j','k','l'
+
     db ';',"'"
+
     db '`'
+
     db 0
+
     db '\'
+
     db 'z','x','c','v','b','n','m'
+
     db ',','.','/'
+
     db 0
     db 0
     db 0
+
     db ' '
+
     times 58 db 0
 
 
@@ -281,23 +427,39 @@ shift_table:
 
     db 0
     db 27
+
     db '!','@','#','$','%','^','&','*','(',')'
+
     db '_','+'
+
     db 8
     db 9
+
     db 'Q','W','E','R','T','Y','U','I','O','P'
+
     db '{','}'
+
     db 13
     db 0
+
     db 'A','S','D','F','G','H','J','K','L'
+
     db ':','"'
+
     db '~'
+
     db 0
+
     db '|'
+
     db 'Z','X','C','V','B','N','M'
+
     db '<','>','?'
+
     db 0
     db 0
     db 0
+
     db ' '
+
     times 58 db 0

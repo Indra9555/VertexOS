@@ -48,7 +48,7 @@ start:
     ; --------------------------------------------------------
 
     mov ah, 0x02        ; BIOS disk read function
-    mov al, 15           ; Read 2 sectors
+    mov al, 7           ; Read 7 sectors
     mov ch, 0           ; Cylinder 0
     mov cl, 2           ; Start at sector 2
     mov dh, 0           ; Head 0
