@@ -5,7 +5,7 @@ global kernel_start
 
 extern idt_init
 extern pic_init
-
+extern keyboard_print_prompt
 
 ; ============================================================
 ; VertexOS Kernel Entry Point
@@ -57,7 +57,7 @@ kernel_start:
     mov edi, 0xB8140
 
     call print_string
-
+    call keyboard_print_prompt
 
     ; --------------------------------------------------------
     ; Initialize Interrupt Descriptor Table
