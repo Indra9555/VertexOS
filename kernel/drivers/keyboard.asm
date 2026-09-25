@@ -1,12 +1,9 @@
+
 [bits 32]
 
 section .text
 
 global keyboard_handler
-global input_buffer
-global input_length
-global command_ready
-global clear_input_buffer
 
 
 ; ============================================================
@@ -17,19 +14,18 @@ global clear_input_buffer
 ; PIC master command port = 0x20
 ;
 ; Features:
-;   - Scancode -> ASCII conversion
-;   - Shift support
-;   - Input buffer
-;   - Backspace
+;   - Normal keyboard input
+;   - Shift
 ;   - Enter
+;   - Backspace
+;   - Input buffer
+;   - VGA text output
 ; ============================================================
 
 
 keyboard_handler:
 
-    ; Save all general-purpose registers
     pushad
-
 
     ; --------------------------------------------------------
     ; Read keyboard scancode
@@ -37,41 +33,39 @@ keyboard_handler:
 
     in al, 0x60
 
-
     ; --------------------------------------------------------
     ; Ignore key-release scancodes
+    ; Bit 7 = 1 means key released
     ; --------------------------------------------------------
 
     test al, 0x80
-    jnz .key_release
-
+    jnz keyboard_key_release
 
     ; --------------------------------------------------------
-    ; Check SHIFT
+    ; SHIFT
+    ; Left Shift  = 0x2A
+    ; Right Shift = 0x36
     ; --------------------------------------------------------
 
     cmp al, 0x2A
-    je .shift_press
+    je keyboard_shift_press
 
     cmp al, 0x36
-    je .shift_press
-
+    je keyboard_shift_press
 
     ; --------------------------------------------------------
     ; ENTER
     ; --------------------------------------------------------
 
     cmp al, 0x1C
-    je .enter
-
+    je keyboard_enter
 
     ; --------------------------------------------------------
     ; BACKSPACE
     ; --------------------------------------------------------
 
     cmp al, 0x0E
-    je .backspace
-
+    je keyboard_backspace
 
     ; --------------------------------------------------------
     ; Convert scancode to character
@@ -80,76 +74,39 @@ keyboard_handler:
     movzx eax, al
 
     cmp eax, 0x39
-    ja .done
-
+    ja keyboard_done
 
     ; --------------------------------------------------------
     ; Check Shift state
     ; --------------------------------------------------------
 
     cmp byte [shift_pressed], 0
-    je .normal_character
-
+    je keyboard_normal_character
 
     mov al, [shift_table + eax]
+    jmp keyboard_print_character
 
-    jmp .character_ready
 
-
-.normal_character:
+keyboard_normal_character:
 
     mov al, [keyboard_table + eax]
 
 
-.character_ready:
+keyboard_print_character:
 
     ; Ignore unmapped scancodes
+
     test al, al
-    jz .done
-
-
-    ; --------------------------------------------------------
-    ; Don't accept characters after Enter
-    ; until kernel clears the buffer
-    ; --------------------------------------------------------
-
-    cmp byte [command_ready], 1
-    je .done
-
+    jz keyboard_done
 
     ; --------------------------------------------------------
-    ; Check input buffer limit
-    ;
-    ; Maximum = 79 characters
-    ; One byte is reserved for null terminator.
+    ; Save character into input buffer
     ; --------------------------------------------------------
 
-    movzx ecx, byte [input_length]
-
-    cmp ecx, 79
-    jae .done
-
+    call buffer_write
 
     ; --------------------------------------------------------
-    ; Store character in input buffer
-    ; --------------------------------------------------------
-
-    mov [input_buffer + ecx], al
-
-    inc byte [input_length]
-
-
-    ; --------------------------------------------------------
-    ; Null terminate string
-    ; --------------------------------------------------------
-
-    movzx ecx, byte [input_length]
-
-    mov byte [input_buffer + ecx], 0
-
-
-    ; --------------------------------------------------------
-    ; Print character on VGA
+    ; Print character to VGA
     ; --------------------------------------------------------
 
     mov edi, [cursor_position]
@@ -161,68 +118,65 @@ keyboard_handler:
 
     mov [cursor_position], edi
 
-    jmp .done
+    jmp keyboard_done
 
 
 ; ============================================================
 ; SHIFT PRESS
 ; ============================================================
 
-.shift_press:
+keyboard_shift_press:
 
     mov byte [shift_pressed], 1
 
-    jmp .done
+    jmp keyboard_done
 
 
 ; ============================================================
 ; KEY RELEASE
 ; ============================================================
 
-.key_release:
+keyboard_key_release:
 
-    ; Left Shift release
+    ; Left Shift release = 0xAA
+
     cmp al, 0xAA
-    je .shift_release
+    je keyboard_shift_release
 
-    ; Right Shift release
+    ; Right Shift release = 0xB6
+
     cmp al, 0xB6
-    je .shift_release
+    je keyboard_shift_release
 
-    jmp .done
+    jmp keyboard_done
 
 
-.shift_release:
+keyboard_shift_release:
 
     mov byte [shift_pressed], 0
 
-    jmp .done
+    jmp keyboard_done
 
 
 ; ============================================================
 ; ENTER
 ; ============================================================
 
-.enter:
-
-    ; Don't accept another Enter until command is processed
-    cmp byte [command_ready], 1
-    je .done
-
+keyboard_enter:
 
     ; --------------------------------------------------------
-    ; Null terminate input buffer
+    ; Store newline in input buffer
     ; --------------------------------------------------------
 
-    movzx ecx, byte [input_length]
+    mov al, 0x0A
 
-    mov byte [input_buffer + ecx], 0
-
-    mov byte [command_ready], 1
-
+    call buffer_write
 
     ; --------------------------------------------------------
     ; Move cursor to next VGA line
+    ;
+    ; VGA row = 80 characters
+    ; 80 * 2 = 160 bytes
     ; --------------------------------------------------------
 
     mov edi, [cursor_position]
@@ -230,9 +184,11 @@ keyboard_handler:
     sub edi, 0xB8000
 
     mov eax, edi
+
     xor edx, edx
 
     mov ebx, 160
+
     div ebx
 
     inc eax
@@ -243,65 +199,50 @@ keyboard_handler:
 
     mov [cursor_position], eax
 
-    jmp .done
+    jmp keyboard_done
 
 
 ; ============================================================
 ; BACKSPACE
 ; ============================================================
 
-.backspace:
-
-    ; Don't modify a completed command
-    cmp byte [command_ready], 1
-    je .done
-
-
-    ; Check if buffer is empty
-    cmp byte [input_length], 0
-    je .done
-
-
-    ; --------------------------------------------------------
-    ; Remove last character from buffer
-    ; --------------------------------------------------------
-
-    dec byte [input_length]
-
-    movzx ecx, byte [input_length]
-
-    mov byte [input_buffer + ecx], 0
-
-
-    ; --------------------------------------------------------
-    ; Move VGA cursor backwards
-    ; --------------------------------------------------------
+keyboard_backspace:
 
     mov edi, [cursor_position]
 
-    cmp edi, 0xB81E0
-    jbe .done
+    cmp edi, 0xB8000
+    jbe keyboard_done
 
     sub edi, 2
 
+    ; Don't erase kernel information
 
-    ; --------------------------------------------------------
-    ; Clear character on screen
-    ; --------------------------------------------------------
+    cmp edi, 0xB81E0
+    jb keyboard_done
+
+    ; Clear VGA character
 
     mov byte [edi], ' '
     mov byte [edi + 1], 0x0F
 
     mov [cursor_position], edi
 
-    jmp .done
+    ; Remove character from input buffer
+
+    call buffer_backspace
+
+    jmp keyboard_done
 
 
 ; ============================================================
-; Send End Of Interrupt
+; KEYBOARD HANDLER EXIT
 ; ============================================================
 
-.done:
+keyboard_done:
+
+    ; --------------------------------------------------------
+    ; Send End Of Interrupt to master PIC
+    ; --------------------------------------------------------
 
     mov al, 0x20
     out 0x20, al
@@ -312,23 +253,78 @@ keyboard_handler:
 
 
 ; ============================================================
-; Clear input buffer
+; BUFFER WRITE
 ;
-; Called by kernel after processing a command.
+; AL = character
 ; ============================================================
 
-clear_input_buffer:
+buffer_write:
 
-    pushad
+    push eax
+    push ebx
 
-    mov byte [input_length], 0
-    mov byte [command_ready], 0
+    mov ebx, [input_buffer_write]
 
-    mov byte [input_buffer], 0
+    ; --------------------------------------------------------
+    ; Prevent overflow
+    ; --------------------------------------------------------
 
-    popad
+    cmp ebx, INPUT_BUFFER_SIZE - 1
+    jae buffer_write_full
+
+    ; --------------------------------------------------------
+    ; Store character
+    ; --------------------------------------------------------
+
+    mov [input_buffer + ebx], al
+
+    inc ebx
+
+    mov [input_buffer_write], ebx
+
+
+buffer_write_full:
+
+    pop ebx
+    pop eax
 
     ret
+
+
+; ============================================================
+; BUFFER BACKSPACE
+; ============================================================
+
+buffer_backspace:
+
+    push eax
+    push ebx
+
+    mov ebx, [input_buffer_write]
+
+    cmp ebx, 0
+    je buffer_backspace_done
+
+    dec ebx
+
+    mov byte [input_buffer + ebx], 0
+
+    mov [input_buffer_write], ebx
+
+
+buffer_backspace_done:
+
+    pop ebx
+    pop eax
+
+    ret
+
+
+; ============================================================
+; DATA
+; ============================================================
+
+section .data
 
 
 ; ============================================================
@@ -339,28 +335,7 @@ shift_pressed db 0
 
 
 ; ============================================================
-; Input buffer
-;
-; Maximum 79 characters + null terminator
-; ============================================================
-
-input_buffer:
-
-    times 80 db 0
-
-
-input_length:
-
-    db 0
-
-
-command_ready:
-
-    db 0
-
-
-; ============================================================
-; Current VGA cursor position
+; VGA cursor
 ;
 ; Row 0 = 0xB8000
 ; Row 1 = 0xB80A0
@@ -368,13 +343,36 @@ command_ready:
 ; Row 3 = 0xB81E0
 ; ============================================================
 
-cursor_position:
-
-    dd 0xB81E0
+cursor_position dd 0xB81E0
 
 
 ; ============================================================
-; Standard US keyboard Set 1 scancode table
+; INPUT BUFFER
+; ============================================================
+
+INPUT_BUFFER_SIZE equ 128
+
+input_buffer:
+
+    times INPUT_BUFFER_SIZE db 0
+
+
+; Position where next character is written
+
+input_buffer_write:
+
+    dd 0
+
+
+; Position from which kernel will eventually read
+
+input_buffer_read:
+
+    dd 0
+
+
+; ============================================================
+; STANDARD US KEYBOARD SET 1
 ; ============================================================
 
 keyboard_table:
@@ -420,7 +418,7 @@ keyboard_table:
 
 
 ; ============================================================
-; Shifted keyboard table
+; SHIFTED KEYBOARD TABLE
 ; ============================================================
 
 shift_table:
