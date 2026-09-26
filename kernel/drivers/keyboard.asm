@@ -8,6 +8,8 @@ global input_buffer_write
 global keyboard_get_input
 global keyboard_print_prompt
 global keyboard_command_ready
+global keyboard_set_cursor
+global keyboard_get_cursor
 
 
 ; ============================================================
@@ -26,6 +28,7 @@ global keyboard_command_ready
 ;   - Command-line editing
 ;   - Prompt protection
 ;   - Visible "_" cursor
+;   - Shell command handoff
 ; ============================================================
 
 
@@ -55,74 +58,47 @@ keyboard_handler:
 
     pushad
 
-    ; --------------------------------------------------------
     ; Read keyboard scancode
-    ; --------------------------------------------------------
-
     in al, 0x60
 
 
-    ; --------------------------------------------------------
     ; Ignore key-release scancodes
-    ; Bit 7 = 1 means key released
-    ; --------------------------------------------------------
-
     test al, 0x80
     jnz keyboard_key_release
 
 
-    ; --------------------------------------------------------
-    ; LEFT SHIFT
-    ; --------------------------------------------------------
-
+    ; Left Shift
     cmp al, 0x2A
     je keyboard_shift_press
 
 
-    ; --------------------------------------------------------
-    ; RIGHT SHIFT
-    ; --------------------------------------------------------
-
+    ; Right Shift
     cmp al, 0x36
     je keyboard_shift_press
 
 
-    ; --------------------------------------------------------
-    ; ENTER
-    ; --------------------------------------------------------
-
+    ; Enter
     cmp al, 0x1C
     je keyboard_enter
 
 
-    ; --------------------------------------------------------
-    ; BACKSPACE
-    ; --------------------------------------------------------
-
+    ; Backspace
     cmp al, 0x0E
     je keyboard_backspace
 
 
-    ; --------------------------------------------------------
     ; Convert scancode to character
-    ; --------------------------------------------------------
-
     movzx eax, al
 
     cmp eax, 0x39
     ja keyboard_done
 
 
-    ; --------------------------------------------------------
     ; Check Shift state
-    ; --------------------------------------------------------
-
     cmp byte [shift_pressed], 0
     je keyboard_normal_character
 
-
     mov al, [shift_table + eax]
-
     jmp keyboard_character_ready
 
 
@@ -133,26 +109,19 @@ keyboard_normal_character:
 
 keyboard_character_ready:
 
-    ; --------------------------------------------------------
     ; Ignore unmapped keys
-    ; --------------------------------------------------------
-
     test al, al
     jz keyboard_done
 
 
-    ; --------------------------------------------------------
-    ; Prevent input buffer overflow
-    ; --------------------------------------------------------
-
+    ; Prevent input overflow
     cmp dword [input_length], MAX_INPUT_LENGTH
     jae keyboard_done
 
 
     ; --------------------------------------------------------
     ; Current cursor points to "_"
-    ;
-    ; Replace "_" with typed character.
+    ; Replace cursor with typed character
     ; --------------------------------------------------------
 
     mov edi, [cursor_position]
@@ -161,33 +130,20 @@ keyboard_character_ready:
     mov byte [edi + 1], 0x0F
 
 
-    ; --------------------------------------------------------
-    ; Save character in input buffer
-    ; --------------------------------------------------------
-
+    ; Save character
     call buffer_write
 
 
-    ; --------------------------------------------------------
     ; Move cursor forward
-    ; --------------------------------------------------------
-
     add edi, 2
-
     mov [cursor_position], edi
 
 
-    ; --------------------------------------------------------
     ; Increase input length
-    ; --------------------------------------------------------
-
     inc dword [input_length]
 
 
-    ; --------------------------------------------------------
     ; Draw new cursor
-    ; --------------------------------------------------------
-
     call keyboard_draw_cursor
 
     jmp keyboard_done
@@ -210,17 +166,11 @@ keyboard_shift_press:
 
 keyboard_key_release:
 
-    ; Left Shift release
-
     cmp al, 0xAA
     je keyboard_shift_release
 
-
-    ; Right Shift release
-
     cmp al, 0xB6
     je keyboard_shift_release
-
 
     jmp keyboard_done
 
@@ -238,100 +188,41 @@ keyboard_shift_release:
 
 ; ============================================================
 ; ENTER
+;
+; IMPORTANT:
+;
+; The keyboard driver does NOT clear the input buffer here.
+;
+; It only marks the command as ready.
+;
+; The shell will read the command using keyboard_get_input().
 ; ============================================================
 
 keyboard_enter:
 
-    ; --------------------------------------------------------
-    ; Do nothing if input line is empty
-    ; --------------------------------------------------------
-
+    ; Do nothing for empty command
     cmp dword [input_length], 0
     je keyboard_done
 
 
-    ; --------------------------------------------------------
-    ; Erase old cursor
-    ; --------------------------------------------------------
-
+    ; Remove visible cursor
     mov edi, [cursor_position]
 
     mov byte [edi], ' '
     mov byte [edi + 1], 0x0F
 
 
-    ; --------------------------------------------------------
-    ; Mark command as ready
-    ; --------------------------------------------------------
-
+    ; Mark command ready
     mov byte [keyboard_command_ready], 1
 
 
-    ; --------------------------------------------------------
-    ; Calculate next VGA row
-    ; --------------------------------------------------------
-
-    mov edi, [cursor_position]
-
-    sub edi, VGA_MEMORY
-
-    mov eax, edi
-
-    xor edx, edx
-
-    mov ebx, VGA_ROW_SIZE
-
-    div ebx
-
-    inc eax
-
-
-    ; --------------------------------------------------------
-    ; Prevent going beyond bottom of screen
-    ; --------------------------------------------------------
-
-    cmp eax, SCREEN_HEIGHT
-
-    jb keyboard_enter_same_screen
-
-
-    ; --------------------------------------------------------
-    ; Screen full
-    ; Clear screen and restart input area
-    ; --------------------------------------------------------
-
-    call keyboard_clear_screen
-
-    mov eax, 3
-
-
-keyboard_enter_same_screen:
-
-    imul eax, VGA_ROW_SIZE
-
-    add eax, VGA_MEMORY
-
-    mov [cursor_position], eax
-
-
-    ; --------------------------------------------------------
-    ; Print new prompt
-    ; This also draws the new "_"
-    ; --------------------------------------------------------
-
-    call keyboard_print_prompt
-
-
-    ; --------------------------------------------------------
-    ; Reset current input line
-    ; --------------------------------------------------------
-
-    mov dword [input_length], 0
-
-    mov dword [input_buffer_write], 0
-
-    call buffer_clear
-
+    ; Do NOT:
+    ;
+    ; - clear input buffer
+    ; - reset input length
+    ; - print new prompt
+    ;
+    ; The shell will do that after executing the command.
 
     jmp keyboard_done
 
@@ -342,89 +233,52 @@ keyboard_enter_same_screen:
 
 keyboard_backspace:
 
-    ; --------------------------------------------------------
     ; Nothing to delete
-    ; --------------------------------------------------------
-
     cmp dword [input_length], 0
     je keyboard_done
 
 
-    ; --------------------------------------------------------
-    ; IMPORTANT:
-    ;
-    ; cursor_position currently points to the visible "_".
-    ;
-    ; Erase that OLD cursor first.
-    ; This prevents the "_" trail bug.
-    ; --------------------------------------------------------
-
+    ; Remove old cursor
     mov edi, [cursor_position]
 
     mov byte [edi], ' '
     mov byte [edi + 1], 0x0F
 
 
-    ; --------------------------------------------------------
-    ; Move cursor backwards to previous character
-    ; --------------------------------------------------------
-
+    ; Move backwards
     sub edi, 2
 
 
-    ; --------------------------------------------------------
-    ; Never move before current prompt
-    ; --------------------------------------------------------
-
+    ; Never cross prompt
     cmp edi, [input_start]
 
-    jb keyboard_backspace_restore_cursor
+    jb keyboard_backspace_restore
 
 
-    ; --------------------------------------------------------
     ; Erase previous character
-    ; --------------------------------------------------------
-
     mov byte [edi], ' '
     mov byte [edi + 1], 0x0F
 
 
-    ; --------------------------------------------------------
-    ; Update cursor position
-    ; --------------------------------------------------------
-
+    ; Update cursor
     mov [cursor_position], edi
 
 
-    ; --------------------------------------------------------
-    ; Remove character from input buffer
-    ; --------------------------------------------------------
-
+    ; Remove character from buffer
     call buffer_backspace
 
 
-    ; --------------------------------------------------------
     ; Decrease input length
-    ; --------------------------------------------------------
-
     dec dword [input_length]
 
 
-    ; --------------------------------------------------------
-    ; Draw new cursor
-    ; --------------------------------------------------------
-
+    ; Draw cursor
     call keyboard_draw_cursor
 
     jmp keyboard_done
 
 
-keyboard_backspace_restore_cursor:
-
-    ; --------------------------------------------------------
-    ; Safety case:
-    ; Restore cursor at current position
-    ; --------------------------------------------------------
+keyboard_backspace_restore:
 
     mov [cursor_position], edi
 
@@ -439,10 +293,7 @@ keyboard_backspace_restore_cursor:
 
 keyboard_done:
 
-    ; --------------------------------------------------------
-    ; Send End Of Interrupt to master PIC
-    ; --------------------------------------------------------
-
+    ; Send EOI to master PIC
     mov al, 0x20
     out 0x20, al
 
@@ -464,18 +315,8 @@ buffer_write:
 
     mov ebx, [input_buffer_write]
 
-
-    ; --------------------------------------------------------
-    ; Prevent buffer overflow
-    ; --------------------------------------------------------
-
     cmp ebx, INPUT_BUFFER_SIZE - 1
     jae buffer_write_done
-
-
-    ; --------------------------------------------------------
-    ; Store character
-    ; --------------------------------------------------------
 
     mov [input_buffer + ebx], al
 
@@ -578,7 +419,6 @@ keyboard_clear_screen_loop:
 
     loop keyboard_clear_screen_loop
 
-
     pop edi
     pop ecx
     pop eax
@@ -589,12 +429,7 @@ keyboard_clear_screen_loop:
 ; ============================================================
 ; DRAW CURSOR
 ;
-; Draws "_" at the current cursor position.
-;
-; Example:
-;
-; > hello_
-;
+; Draw "_" at current cursor position.
 ; ============================================================
 
 keyboard_draw_cursor:
@@ -630,44 +465,63 @@ keyboard_print_prompt:
     mov edi, [cursor_position]
 
 
-    ; --------------------------------------------------------
     ; Print >
-    ; --------------------------------------------------------
-
     mov byte [edi], '>'
     mov byte [edi + 1], 0x0F
 
     add edi, 2
 
 
-    ; --------------------------------------------------------
     ; Print space
-    ; --------------------------------------------------------
-
     mov byte [edi], ' '
     mov byte [edi + 1], 0x0F
 
     add edi, 2
 
 
-    ; --------------------------------------------------------
     ; Save input start
-    ; --------------------------------------------------------
-
     mov [cursor_position], edi
-
     mov [input_start], edi
 
 
-    ; --------------------------------------------------------
     ; Draw cursor
-    ; --------------------------------------------------------
-
     call keyboard_draw_cursor
 
 
     pop edi
     pop eax
+
+    ret
+
+
+; ============================================================
+; GET CURSOR
+;
+; Returns:
+;   EAX = current VGA cursor position
+; ============================================================
+
+keyboard_get_cursor:
+
+    mov eax, [cursor_position]
+
+    ret
+
+
+; ============================================================
+; SET CURSOR
+;
+; Input:
+;   EAX = VGA cursor position
+;
+; Also updates input_start.
+; ============================================================
+
+keyboard_set_cursor:
+
+    mov [cursor_position], eax
+
+    mov [input_start], eax
 
     ret
 
@@ -679,6 +533,8 @@ keyboard_print_prompt:
 ;
 ; Returns:
 ;   EAX = number of characters copied
+;
+; This function clears the keyboard buffer AFTER copying it.
 ; ============================================================
 
 keyboard_get_input:
@@ -694,7 +550,6 @@ keyboard_get_input:
     mov esi, input_buffer
 
     mov ecx, [input_buffer_write]
-
 
     test ecx, ecx
     jz keyboard_get_input_empty
@@ -715,41 +570,27 @@ keyboard_get_input_loop:
 
 keyboard_get_input_empty:
 
+    ; Null terminate destination
     mov byte [edi + eax], 0
 
 
-    ; --------------------------------------------------------
-    ; Save length
-    ; --------------------------------------------------------
-
+    ; Save returned length
     mov edx, eax
 
 
-    ; --------------------------------------------------------
-    ; Clear input buffer
-    ; --------------------------------------------------------
-
+    ; Clear keyboard buffer
     call buffer_clear
 
 
-    ; --------------------------------------------------------
-    ; Reset write position
-    ; --------------------------------------------------------
-
+    ; Reset buffer position
     mov dword [input_buffer_write], 0
 
 
-    ; --------------------------------------------------------
-    ; Reset input length
-    ; --------------------------------------------------------
-
+    ; Reset current input length
     mov dword [input_length], 0
 
 
-    ; --------------------------------------------------------
     ; Return length
-    ; --------------------------------------------------------
-
     mov eax, edx
 
 
@@ -788,8 +629,6 @@ cursor_position:
 
 ; ============================================================
 ; Start of current input
-;
-; Backspace cannot move before this address.
 ; ============================================================
 
 input_start:
@@ -808,9 +647,6 @@ input_length:
 
 ; ============================================================
 ; Command ready flag
-;
-; 0 = no command submitted
-; 1 = Enter pressed
 ; ============================================================
 
 keyboard_command_ready:
@@ -861,7 +697,7 @@ keyboard_table:
 
     db 'a','s','d','f','g','h','j','k','l'
 
-    db ';',"'" 
+    db ';',"'"
 
     db '`'
 

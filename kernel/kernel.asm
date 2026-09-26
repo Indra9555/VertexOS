@@ -6,6 +6,9 @@ global kernel_start
 extern idt_init
 extern pic_init
 extern keyboard_print_prompt
+extern shell_init
+extern shell_update
+
 
 ; ============================================================
 ; VertexOS Kernel Entry Point
@@ -14,7 +17,7 @@ extern keyboard_print_prompt
 kernel_start:
 
     ; --------------------------------------------------------
-    ; Clear the VGA text screen
+    ; Clear VGA text screen
     ; --------------------------------------------------------
 
     mov edi, 0xB8000
@@ -57,17 +60,17 @@ kernel_start:
     mov edi, 0xB8140
 
     call print_string
-    call keyboard_print_prompt
+
 
     ; --------------------------------------------------------
-    ; Initialize Interrupt Descriptor Table
+    ; Initialize IDT
     ; --------------------------------------------------------
 
     call idt_init
 
 
     ; --------------------------------------------------------
-    ; Initialize Programmable Interrupt Controller
+    ; Initialize PIC
     ; --------------------------------------------------------
 
     call pic_init
@@ -75,19 +78,6 @@ kernel_start:
 
     ; --------------------------------------------------------
     ; Enable keyboard IRQ1
-    ;
-    ; PIC master data port = 0x21
-    ;
-    ; IRQ1 corresponds to bit 1.
-    ;
-    ; 1 = masked
-    ; 0 = enabled
-    ;
-    ; 11111111
-    ;        ↑
-    ;       IRQ1
-    ;
-    ; AND with 11111101 clears bit 1.
     ; --------------------------------------------------------
 
     in al, 0x21
@@ -98,6 +88,20 @@ kernel_start:
 
 
     ; --------------------------------------------------------
+    ; Initialize shell
+    ; --------------------------------------------------------
+
+    call shell_init
+
+
+    ; --------------------------------------------------------
+    ; Print initial shell prompt
+    ; --------------------------------------------------------
+
+    call keyboard_print_prompt
+
+
+    ; --------------------------------------------------------
     ; Enable CPU interrupts
     ; --------------------------------------------------------
 
@@ -105,10 +109,12 @@ kernel_start:
 
 
     ; --------------------------------------------------------
-    ; Wait for hardware interrupts
+    ; Main kernel loop
     ; --------------------------------------------------------
 
 .hang:
+
+    call shell_update
 
     hlt
 
@@ -118,13 +124,8 @@ kernel_start:
 ; ============================================================
 ; print_string
 ;
-; ESI = address of string
-; EDI = VGA destination address
-;
-; VGA text mode:
-;
-; Character = [EDI]
-; Attribute = [EDI + 1]
+; ESI = source string
+; EDI = VGA destination
 ; ============================================================
 
 print_string:
@@ -137,18 +138,9 @@ print_string:
 
     jz .done
 
-
-    ; Write character
-
     mov [edi], al
 
-
-    ; White text on black background
-
     mov byte [edi + 1], 0x0F
-
-
-    ; Move to next VGA character
 
     add edi, 2
 
@@ -161,11 +153,19 @@ print_string:
 
 
 ; ============================================================
-; Kernel messages
+; Kernel Messages
 ; ============================================================
 
-title_msg db "VertexOS - Protected Mode Kernel", 0
+title_msg:
 
-status_msg db "Kernel loaded successfully.", 0
+    db "VertexOS - Protected Mode Kernel", 0
 
-arch_msg db "Architecture: x86 32-bit Protected Mode", 0
+
+status_msg:
+
+    db "Kernel loaded successfully.", 0
+
+
+arch_msg:
+
+    db "Architecture: x86 32-bit Protected Mode", 0
