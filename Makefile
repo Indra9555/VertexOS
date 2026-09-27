@@ -26,6 +26,9 @@ KEYBOARD_OBJ = build/keyboard.o
 SHELL_SRC = kernel/shell/shell.asm
 SHELL_OBJ = build/shell.o
 
+CONSOLE_SRC = kernel/console/console.asm
+CONSOLE_OBJ = build/console.o
+
 
 # ============================================================
 # KERNEL
@@ -62,9 +65,7 @@ boot: $(BOOT_BIN)
 
 
 $(BOOT_BIN): $(BOOT_SRC)
-
 	@mkdir -p build
-
 	$(ASM) -f bin $(BOOT_SRC) -o $(BOOT_BIN)
 
 
@@ -76,9 +77,7 @@ kernel: $(KERNEL_BIN)
 
 
 $(KERNEL_OBJ): $(KERNEL_SRC)
-
 	@mkdir -p build
-
 	$(ASM) -f elf32 $(KERNEL_SRC) -o $(KERNEL_OBJ)
 
 
@@ -87,9 +86,7 @@ $(KERNEL_OBJ): $(KERNEL_SRC)
 # ============================================================
 
 $(IDT_OBJ): $(IDT_SRC)
-
 	@mkdir -p build
-
 	$(ASM) -f elf32 $(IDT_SRC) -o $(IDT_OBJ)
 
 
@@ -98,9 +95,7 @@ $(IDT_OBJ): $(IDT_SRC)
 # ============================================================
 
 $(PIC_OBJ): $(PIC_SRC)
-
 	@mkdir -p build
-
 	$(ASM) -f elf32 $(PIC_SRC) -o $(PIC_OBJ)
 
 
@@ -109,9 +104,7 @@ $(PIC_OBJ): $(PIC_SRC)
 # ============================================================
 
 $(KEYBOARD_OBJ): $(KEYBOARD_SRC)
-
 	@mkdir -p build
-
 	$(ASM) -f elf32 $(KEYBOARD_SRC) -o $(KEYBOARD_OBJ)
 
 
@@ -120,10 +113,17 @@ $(KEYBOARD_OBJ): $(KEYBOARD_SRC)
 # ============================================================
 
 $(SHELL_OBJ): $(SHELL_SRC)
-
 	@mkdir -p build
-
 	$(ASM) -f elf32 $(SHELL_SRC) -o $(SHELL_OBJ)
+
+
+# ============================================================
+# CONSOLE
+# ============================================================
+
+$(CONSOLE_OBJ): $(CONSOLE_SRC)
+	@mkdir -p build
+	$(ASM) -f elf32 $(CONSOLE_SRC) -o $(CONSOLE_OBJ)
 
 
 # ============================================================
@@ -136,6 +136,7 @@ $(KERNEL_ELF): \
 	$(PIC_OBJ) \
 	$(KEYBOARD_OBJ) \
 	$(SHELL_OBJ) \
+	$(CONSOLE_OBJ) \
 	$(LINKER_SCRIPT)
 
 	$(LD) -m elf_i386 -T $(LINKER_SCRIPT) \
@@ -144,7 +145,8 @@ $(KERNEL_ELF): \
 		$(IDT_OBJ) \
 		$(PIC_OBJ) \
 		$(KEYBOARD_OBJ) \
-		$(SHELL_OBJ)
+		$(SHELL_OBJ) \
+		$(CONSOLE_OBJ)
 
 
 # ============================================================
@@ -208,6 +210,7 @@ clean:
 		$(PIC_OBJ) \
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \
+		$(CONSOLE_OBJ) \
 		$(KERNEL_ELF) \
 		$(KERNEL_BIN) \
 		$(OS_IMAGE)

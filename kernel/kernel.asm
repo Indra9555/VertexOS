@@ -8,6 +8,7 @@ extern pic_init
 extern keyboard_print_prompt
 extern shell_init
 extern shell_update
+extern console_init
 
 
 ; ============================================================
@@ -15,6 +16,13 @@ extern shell_update
 ; ============================================================
 
 kernel_start:
+
+    ; --------------------------------------------------------
+    ; Initialize Console
+    ; --------------------------------------------------------
+
+    call console_init
+
 
     ; --------------------------------------------------------
     ; Clear VGA text screen
