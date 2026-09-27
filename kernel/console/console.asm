@@ -8,6 +8,9 @@ global console_putc
 global console_print
 global console_newline
 global console_scroll
+global console_get_cursor
+global console_set_cursor
+
 
 ; ============================================================
 ; VertexOS Console
@@ -22,8 +25,15 @@ global console_scroll
 ;   byte 1 = attribute
 ;
 ; Screen:
-;   80 columns
-;   25 rows
+;   80 columns × 25 rows
+;
+; Responsibilities:
+;   - VGA screen management
+;   - Character output
+;   - String output
+;   - Newlines
+;   - Scrolling
+;   - Console cursor management
 ;
 ; ============================================================
 
@@ -32,24 +42,20 @@ global console_scroll
 ; CONSTANTS
 ; ============================================================
 
-VGA_MEMORY      equ 0xB8000
+VGA_MEMORY          equ 0xB8000
 
-SCREEN_WIDTH    equ 80
-SCREEN_HEIGHT   equ 25
+SCREEN_WIDTH        equ 80
+SCREEN_HEIGHT       equ 25
 
-VGA_ROW_SIZE    equ SCREEN_WIDTH * 2
+VGA_ROW_SIZE        equ SCREEN_WIDTH * 2
 
-DEFAULT_ATTRIBUTE equ 0x0F
+DEFAULT_ATTRIBUTE   equ 0x0F
 
 
 ; ============================================================
 ; console_init
 ;
 ; Initializes the console.
-;
-; For now:
-;   - Clear screen
-;   - Reset cursor
 ;
 ; ============================================================
 
@@ -91,6 +97,10 @@ console_clear_loop:
     loop console_clear_loop
 
 
+    ; --------------------------------------------------------
+    ; Reset console cursor
+    ; --------------------------------------------------------
+
     mov dword [console_cursor], VGA_MEMORY
 
 
@@ -110,25 +120,44 @@ console_clear_loop:
 ;
 ;   normal character
 ;   newline
+;
 ; ============================================================
 
 console_putc:
 
     cmp al, 10
+
     je console_putc_newline
 
 
     push eax
     push edi
 
+
+    ; --------------------------------------------------------
+    ; Get current cursor
+    ; --------------------------------------------------------
+
     mov edi, [console_cursor]
 
+
+    ; --------------------------------------------------------
+    ; Write character
+    ; --------------------------------------------------------
+
     mov [edi], al
+
     mov byte [edi + 1], DEFAULT_ATTRIBUTE
+
+
+    ; --------------------------------------------------------
+    ; Move cursor forward
+    ; --------------------------------------------------------
 
     add edi, 2
 
     mov [console_cursor], edi
+
 
     pop edi
     pop eax
@@ -155,6 +184,7 @@ console_putc_newline:
 console_print:
 
     push eax
+
 
 console_print_loop:
 
@@ -192,9 +222,19 @@ console_newline:
     push edx
     push edi
 
+
+    ; --------------------------------------------------------
+    ; Get current cursor
+    ; --------------------------------------------------------
+
     mov edi, [console_cursor]
 
     sub edi, VGA_MEMORY
+
+
+    ; --------------------------------------------------------
+    ; Convert byte offset to row number
+    ; --------------------------------------------------------
 
     mov eax, edi
 
@@ -204,10 +244,16 @@ console_newline:
 
     div ebx
 
-    inc eax
 
     ; --------------------------------------------------------
-    ; If next row is still inside the screen
+    ; Move to next row
+    ; --------------------------------------------------------
+
+    inc eax
+
+
+    ; --------------------------------------------------------
+    ; Check whether next row is inside screen
     ; --------------------------------------------------------
 
     cmp eax, SCREEN_HEIGHT
@@ -216,7 +262,10 @@ console_newline:
 
 
     ; --------------------------------------------------------
-    ; Screen is full
+    ; Screen full
+    ;
+    ; Scroll rows upward.
+    ; New cursor goes to last row.
     ; --------------------------------------------------------
 
     call console_scroll
@@ -225,6 +274,10 @@ console_newline:
 
 
 console_newline_same_screen:
+
+    ; --------------------------------------------------------
+    ; Convert row number to VGA address
+    ; --------------------------------------------------------
 
     imul eax, VGA_ROW_SIZE
 
@@ -246,8 +299,12 @@ console_newline_same_screen:
 ;
 ; Moves rows 1-24 upward.
 ;
-; Row 0 is replaced by row 1.
-; Row 24 becomes blank.
+; Row 0 <- Row 1
+; Row 1 <- Row 2
+; ...
+; Row 23 <- Row 24
+;
+; Row 24 is cleared.
 ;
 ; ============================================================
 
@@ -260,35 +317,28 @@ console_scroll:
 
 
     ; --------------------------------------------------------
-    ; Source:
-    ;
-    ; Row 1
+    ; Source = row 1
     ; --------------------------------------------------------
 
     mov esi, VGA_MEMORY + VGA_ROW_SIZE
 
 
     ; --------------------------------------------------------
-    ; Destination:
-    ;
-    ; Row 0
+    ; Destination = row 0
     ; --------------------------------------------------------
 
     mov edi, VGA_MEMORY
 
 
     ; --------------------------------------------------------
-    ; Number of character cells to copy:
+    ; Copy:
     ;
     ; 24 rows × 80 cells
+    ;
+    ; Each cell = 16 bits
     ; --------------------------------------------------------
 
     mov ecx, (SCREEN_HEIGHT - 1) * SCREEN_WIDTH
-
-
-    ; --------------------------------------------------------
-    ; Each cell = 16 bits
-    ; --------------------------------------------------------
 
     cld
 
@@ -324,10 +374,53 @@ console_scroll_clear_bottom:
 
 
 ; ============================================================
+; console_get_cursor
+;
+; Returns:
+;
+;   EAX = current VGA cursor address
+;
+; ============================================================
+
+console_get_cursor:
+
+    mov eax, [console_cursor]
+
+    ret
+
+
+; ============================================================
+; console_set_cursor
+;
+; Input:
+;
+;   EAX = VGA cursor address
+;
+; Used by higher-level components that need to synchronize
+; their output position with the console.
+;
+; ============================================================
+
+console_set_cursor:
+
+    mov [console_cursor], eax
+
+    ret
+
+
+; ============================================================
 ; DATA
 ; ============================================================
 
 section .data
+
+
+; ============================================================
+; Console cursor
+;
+; Stores the VGA memory address of the next output position.
+;
+; ============================================================
 
 console_cursor:
 
