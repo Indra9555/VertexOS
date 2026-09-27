@@ -13,27 +13,29 @@ global console_set_cursor
 
 
 ; ============================================================
-; VertexOS Console
+; VertexOS Console Subsystem
 ;
-; VGA text-mode console
+; VGA text-mode console driver
 ;
 ; VGA memory:
 ;   0xB8000
 ;
-; Each screen cell:
-;   byte 0 = character
-;   byte 1 = attribute
-;
 ; Screen:
 ;   80 columns × 25 rows
 ;
+; Each VGA cell:
+;   byte 0 = character
+;   byte 1 = attribute
+;
 ; Responsibilities:
-;   - VGA screen management
+;
+;   - Console initialization
+;   - Screen clearing
 ;   - Character output
 ;   - String output
-;   - Newlines
-;   - Scrolling
-;   - Console cursor management
+;   - Newline handling
+;   - Automatic scrolling
+;   - Cursor management
 ;
 ; ============================================================
 
@@ -48,14 +50,21 @@ SCREEN_WIDTH        equ 80
 SCREEN_HEIGHT       equ 25
 
 VGA_ROW_SIZE        equ SCREEN_WIDTH * 2
+VGA_SCREEN_SIZE     equ SCREEN_WIDTH * SCREEN_HEIGHT * 2
 
 DEFAULT_ATTRIBUTE   equ 0x0F
+CLEAR_ATTRIBUTE     equ 0x07
 
 
 ; ============================================================
 ; console_init
 ;
-; Initializes the console.
+; Initialize the console subsystem.
+;
+; Actions:
+;
+;   1. Clear VGA screen
+;   2. Reset console cursor
 ;
 ; ============================================================
 
@@ -69,9 +78,11 @@ console_init:
 ; ============================================================
 ; console_clear
 ;
-; Clears the entire VGA screen.
+; Clear the complete VGA text screen.
 ;
-; Cursor is reset to the top-left.
+; After clearing:
+;
+;   cursor = top-left
 ;
 ; ============================================================
 
@@ -85,6 +96,7 @@ console_clear:
 
     mov ecx, SCREEN_WIDTH * SCREEN_HEIGHT
 
+    ; Space character + normal gray attribute
     mov ax, 0x0720
 
 
@@ -98,7 +110,7 @@ console_clear_loop:
 
 
     ; --------------------------------------------------------
-    ; Reset console cursor
+    ; Reset cursor
     ; --------------------------------------------------------
 
     mov dword [console_cursor], VGA_MEMORY
@@ -114,16 +126,22 @@ console_clear_loop:
 ; ============================================================
 ; console_putc
 ;
-; AL = character
+; Input:
+;
+;   AL = character
 ;
 ; Handles:
 ;
-;   normal character
-;   newline
+;   '\n' = newline
+;   normal character = write to VGA
 ;
 ; ============================================================
 
 console_putc:
+
+    ; --------------------------------------------------------
+    ; Newline?
+    ; --------------------------------------------------------
 
     cmp al, 10
 
@@ -151,13 +169,37 @@ console_putc:
 
 
     ; --------------------------------------------------------
-    ; Move cursor forward
+    ; Advance cursor
     ; --------------------------------------------------------
 
     add edi, 2
 
     mov [console_cursor], edi
 
+
+    ; --------------------------------------------------------
+    ; If cursor reached end of VGA memory, scroll.
+    ;
+    ; This also protects against writing beyond the screen
+    ; when a character is written in the last cell.
+    ; --------------------------------------------------------
+
+    mov eax, edi
+
+    sub eax, VGA_MEMORY
+
+    cmp eax, VGA_SCREEN_SIZE
+
+    jb console_putc_done
+
+
+    call console_scroll
+
+    mov dword [console_cursor], \
+        VGA_MEMORY + ((SCREEN_HEIGHT - 1) * VGA_ROW_SIZE)
+
+
+console_putc_done:
 
     pop edi
     pop eax
@@ -175,9 +217,11 @@ console_putc_newline:
 ; ============================================================
 ; console_print
 ;
-; ESI = null-terminated string
+; Input:
 ;
-; Prints the string one character at a time.
+;   ESI = pointer to null-terminated string
+;
+; Prints the complete string.
 ;
 ; ============================================================
 
@@ -209,9 +253,12 @@ console_print_done:
 ; ============================================================
 ; console_newline
 ;
-; Moves cursor to beginning of next row.
+; Move cursor to the beginning of the next row.
 ;
-; If the screen is full, scrolls the screen.
+; If the cursor is already on the last row:
+;
+;   - Scroll screen
+;   - Keep cursor on last row
 ;
 ; ============================================================
 
@@ -224,7 +271,7 @@ console_newline:
 
 
     ; --------------------------------------------------------
-    ; Get current cursor
+    ; Get current cursor offset
     ; --------------------------------------------------------
 
     mov edi, [console_cursor]
@@ -233,7 +280,7 @@ console_newline:
 
 
     ; --------------------------------------------------------
-    ; Convert byte offset to row number
+    ; Convert byte offset -> row number
     ; --------------------------------------------------------
 
     mov eax, edi
@@ -253,30 +300,31 @@ console_newline:
 
 
     ; --------------------------------------------------------
-    ; Check whether next row is inside screen
+    ; Check if next row is still visible
     ; --------------------------------------------------------
 
     cmp eax, SCREEN_HEIGHT
 
-    jb console_newline_same_screen
+    jb console_newline_no_scroll
 
 
     ; --------------------------------------------------------
-    ; Screen full
+    ; Screen is full.
     ;
-    ; Scroll rows upward.
-    ; New cursor goes to last row.
+    ; Move all rows upward.
     ; --------------------------------------------------------
 
     call console_scroll
 
+
+    ; Continue writing on bottom row.
     mov eax, SCREEN_HEIGHT - 1
 
 
-console_newline_same_screen:
+console_newline_no_scroll:
 
     ; --------------------------------------------------------
-    ; Convert row number to VGA address
+    ; Convert row -> VGA address
     ; --------------------------------------------------------
 
     imul eax, VGA_ROW_SIZE
@@ -297,14 +345,23 @@ console_newline_same_screen:
 ; ============================================================
 ; console_scroll
 ;
-; Moves rows 1-24 upward.
+; Scroll the VGA screen upward by one row.
 ;
-; Row 0 <- Row 1
-; Row 1 <- Row 2
-; ...
-; Row 23 <- Row 24
+; Before:
 ;
-; Row 24 is cleared.
+;   Row 0
+;   Row 1
+;   Row 2
+;   ...
+;   Row 24
+;
+; After:
+;
+;   Row 1 -> Row 0
+;   Row 2 -> Row 1
+;   ...
+;   Row 24 -> Row 23
+;   Blank  -> Row 24
 ;
 ; ============================================================
 
@@ -314,39 +371,47 @@ console_scroll:
     push ecx
     push esi
     push edi
+    pushfd
 
 
     ; --------------------------------------------------------
-    ; Source = row 1
+    ; Always copy forward.
+    ; --------------------------------------------------------
+
+    cld
+
+
+    ; --------------------------------------------------------
+    ; Source:
+    ;
+    ; Row 1
     ; --------------------------------------------------------
 
     mov esi, VGA_MEMORY + VGA_ROW_SIZE
 
 
     ; --------------------------------------------------------
-    ; Destination = row 0
+    ; Destination:
+    ;
+    ; Row 0
     ; --------------------------------------------------------
 
     mov edi, VGA_MEMORY
 
 
     ; --------------------------------------------------------
-    ; Copy:
+    ; Copy 24 rows × 80 cells.
     ;
-    ; 24 rows × 80 cells
-    ;
-    ; Each cell = 16 bits
+    ; One VGA cell = 16 bits.
     ; --------------------------------------------------------
 
     mov ecx, (SCREEN_HEIGHT - 1) * SCREEN_WIDTH
-
-    cld
 
     rep movsw
 
 
     ; --------------------------------------------------------
-    ; Clear bottom row
+    ; Clear bottom row.
     ; --------------------------------------------------------
 
     mov edi, VGA_MEMORY + ((SCREEN_HEIGHT - 1) * VGA_ROW_SIZE)
@@ -365,6 +430,7 @@ console_scroll_clear_bottom:
     loop console_scroll_clear_bottom
 
 
+    popfd
     pop edi
     pop esi
     pop ecx
@@ -396,8 +462,7 @@ console_get_cursor:
 ;
 ;   EAX = VGA cursor address
 ;
-; Used by higher-level components that need to synchronize
-; their output position with the console.
+; Sets the console output position.
 ;
 ; ============================================================
 
@@ -418,7 +483,7 @@ section .data
 ; ============================================================
 ; Console cursor
 ;
-; Stores the VGA memory address of the next output position.
+; Stores the VGA address of the next output position.
 ;
 ; ============================================================
 

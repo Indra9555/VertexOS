@@ -10,6 +10,12 @@ extern keyboard_command_ready
 extern keyboard_print_prompt
 extern keyboard_set_cursor
 
+extern console_print
+extern console_newline
+extern console_clear
+extern console_get_cursor
+extern console_set_cursor
+
 
 ; ============================================================
 ; VertexOS Shell
@@ -23,14 +29,18 @@ extern keyboard_set_cursor
 ;   clear
 ;   echo <text>
 ;
-; Features:
+; Architecture:
 ;
-;   - Command processing
-;   - VGA text output
-;   - Screen scrolling
-;   - Prompt synchronization
-;   - Clear command
-;   - Echo command
+;   Keyboard Driver
+;          ↓
+;        Shell
+;          ↓
+;       Console
+;          ↓
+;      VGA Memory
+;
+; The Shell does NOT directly manipulate VGA memory.
+;
 ; ============================================================
 
 
@@ -38,14 +48,16 @@ extern keyboard_set_cursor
 ; CONSTANTS
 ; ============================================================
 
-VGA_MEMORY        equ 0xB8000
+VGA_MEMORY          equ 0xB8000
 
-SCREEN_WIDTH      equ 80
-SCREEN_HEIGHT     equ 25
+SCREEN_WIDTH        equ 80
+SCREEN_HEIGHT       equ 25
 
-VGA_ROW_SIZE      equ SCREEN_WIDTH * 2
+VGA_ROW_SIZE        equ SCREEN_WIDTH * 2
 
-SHELL_BUFFER_SIZE equ 128
+SHELL_START_ROW     equ 3
+
+SHELL_BUFFER_SIZE   equ 128
 
 
 ; ============================================================
@@ -64,13 +76,14 @@ shell_init:
 ;
 ; Called repeatedly by the kernel.
 ;
-; Checks whether ENTER was pressed.
+; Checks whether the keyboard driver has completed a command.
+;
 ; ============================================================
 
 shell_update:
 
     ; --------------------------------------------------------
-    ; Check command-ready flag
+    ; Has ENTER been pressed?
     ; --------------------------------------------------------
 
     cmp byte [keyboard_command_ready], 1
@@ -79,16 +92,16 @@ shell_update:
 
 
     ; --------------------------------------------------------
-    ; Clear command-ready flag
+    ; Clear command-ready flag.
     ; --------------------------------------------------------
 
     mov byte [keyboard_command_ready], 0
 
 
     ; --------------------------------------------------------
-    ; Get command from keyboard driver
+    ; Copy command from keyboard driver.
     ;
-    ; EDI = destination
+    ; EDI = destination buffer
     ; EAX = command length
     ; --------------------------------------------------------
 
@@ -98,14 +111,14 @@ shell_update:
 
 
     ; --------------------------------------------------------
-    ; Save command length
+    ; Save command length.
     ; --------------------------------------------------------
 
     mov [shell_command_length], eax
 
 
     ; --------------------------------------------------------
-    ; Execute command
+    ; Execute command.
     ; --------------------------------------------------------
 
     call shell_execute
@@ -123,7 +136,7 @@ shell_update_done:
 shell_execute:
 
     ; --------------------------------------------------------
-    ; Empty command
+    ; Empty command.
     ; --------------------------------------------------------
 
     cmp dword [shell_command_length], 0
@@ -219,13 +232,13 @@ shell_execute:
     ; UNKNOWN COMMAND
     ; ========================================================
 
-    call print_newline
+    call console_newline
 
     mov esi, unknown_msg
 
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     call shell_print_prompt
 
@@ -238,42 +251,42 @@ shell_execute:
 
 shell_cmd_help:
 
-    call print_newline
+    call console_newline
 
     mov esi, help_title
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, help_line1
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, help_line2
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, help_line3
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, help_line4
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, help_line5
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, help_line6
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     call shell_print_prompt
 
@@ -286,27 +299,27 @@ shell_cmd_help:
 
 shell_cmd_about:
 
-    call print_newline
+    call console_newline
 
     mov esi, about_line1
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, about_line2
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, about_line3
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, about_line4
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     call shell_print_prompt
 
@@ -319,12 +332,12 @@ shell_cmd_about:
 
 shell_cmd_version:
 
-    call print_newline
+    call console_newline
 
     mov esi, version_msg
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     call shell_print_prompt
 
@@ -337,32 +350,32 @@ shell_cmd_version:
 
 shell_cmd_info:
 
-    call print_newline
+    call console_newline
 
     mov esi, info_line1
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, info_line2
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, info_line3
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, info_line4
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     mov esi, info_line5
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     call shell_print_prompt
 
@@ -376,23 +389,31 @@ shell_cmd_info:
 shell_cmd_clear:
 
     ; --------------------------------------------------------
-    ; Clear entire VGA screen
+    ; Clear complete screen through console subsystem.
     ; --------------------------------------------------------
 
-    call clear_screen
+    call console_clear
 
 
     ; --------------------------------------------------------
-    ; Restart shell output position
+    ; Console cursor is now at top-left.
     ;
-    ; Keep the first three rows for kernel information.
+    ; Kernel information occupies rows:
+    ;
+    ;   Row 0 = title
+    ;   Row 1 = kernel status
+    ;   Row 2 = architecture
+    ;
+    ; Shell starts at row 3.
     ; --------------------------------------------------------
 
-    mov dword [print_cursor], VGA_MEMORY + (3 * VGA_ROW_SIZE)
+    mov eax, VGA_MEMORY + (SHELL_START_ROW * VGA_ROW_SIZE)
+
+    call console_set_cursor
 
 
     ; --------------------------------------------------------
-    ; Synchronize keyboard prompt with shell cursor
+    ; Create shell prompt.
     ; --------------------------------------------------------
 
     call shell_print_prompt
@@ -407,18 +428,15 @@ shell_cmd_clear:
 ;
 ;   echo hello
 ;
-; Only "echo " is accepted.
-;
-; "echohello" is NOT accepted.
 ; ============================================================
 
 shell_cmd_echo:
 
-    call print_newline
+    call console_newline
 
 
     ; --------------------------------------------------------
-    ; Find space after "echo"
+    ; Find the space after "echo".
     ; --------------------------------------------------------
 
     mov esi, shell_buffer
@@ -446,19 +464,19 @@ shell_echo_find_space:
 shell_echo_found_space:
 
     ; --------------------------------------------------------
-    ; Skip the first space
+    ; Skip space.
     ; --------------------------------------------------------
 
     inc esi
 
 
     ; --------------------------------------------------------
-    ; Print echo argument
+    ; Print argument.
     ; --------------------------------------------------------
 
-    call print_string
+    call console_print
 
-    call print_newline
+    call console_newline
 
     call shell_print_prompt
 
@@ -467,7 +485,7 @@ shell_echo_found_space:
 
 shell_echo_empty:
 
-    call print_newline
+    call console_newline
 
     call shell_print_prompt
 
@@ -477,6 +495,82 @@ shell_echo_empty:
 ; ============================================================
 
 shell_execute_done:
+
+    ret
+
+
+; ============================================================
+; SHELL PRINT PROMPT
+;
+; IMPORTANT:
+;
+; Console owns the output cursor.
+;
+; Keyboard driver owns the input cursor.
+;
+; This function synchronizes them.
+;
+; Current console position:
+;
+;       ↓
+;   console cursor
+;
+;       ↓
+;   keyboard cursor
+;
+;       ↓
+;      > _
+;
+; After drawing "> " the console cursor is advanced too.
+;
+; ============================================================
+
+shell_print_prompt:
+
+    ; --------------------------------------------------------
+    ; Get current console cursor.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+
+    ; --------------------------------------------------------
+    ; Give same position to keyboard driver.
+    ; --------------------------------------------------------
+
+    call keyboard_set_cursor
+
+
+    ; --------------------------------------------------------
+    ; Keyboard driver draws:
+    ;
+    ;   > _
+    ;
+    ; and advances its own cursor by 4 bytes.
+    ; --------------------------------------------------------
+
+    call keyboard_print_prompt
+
+
+    ; --------------------------------------------------------
+    ; Synchronize console cursor.
+    ;
+    ; keyboard_print_prompt does:
+    ;
+    ;   cursor + 4 bytes
+    ;
+    ; because:
+    ;
+    ;   '>' = 2 bytes
+    ;   ' ' = 2 bytes
+    ;
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+    add eax, 4
+
+    call console_set_cursor
 
     ret
 
@@ -545,21 +639,11 @@ strings_not_equal:
 ; ESI = input string
 ; EDI = command prefix
 ;
-; The prefix must be followed by a space or null.
+; Prefix must be followed by:
 ;
-; Example:
+;   space
+;   or null
 ;
-;   echo hello   → match
-;   echo test    → match
-;   echo         → match
-;
-;   echohello    → no match
-;   echoworld    → no match
-;
-; Returns:
-;
-;   EAX = 1 → match
-;   EAX = 0 → no match
 ; ============================================================
 
 string_starts_with_argument:
@@ -591,15 +675,6 @@ string_argument_loop:
 
 
 string_argument_prefix_done:
-
-    ; --------------------------------------------------------
-    ; Prefix matched.
-    ;
-    ; Next character must be:
-    ;
-    ;   space
-    ;   or null
-    ; --------------------------------------------------------
 
     mov al, [esi]
 
@@ -635,334 +710,6 @@ string_argument_no:
 
 
 ; ============================================================
-; PRINT STRING
-;
-; ESI = null-terminated string
-;
-; Writes characters starting at print_cursor.
-; ============================================================
-
-print_string:
-
-    push eax
-    push edi
-
-
-    mov edi, [print_cursor]
-
-
-print_string_loop:
-
-    lodsb
-
-    test al, al
-
-    jz print_string_done
-
-
-    ; --------------------------------------------------------
-    ; Write character
-    ; --------------------------------------------------------
-
-    mov [edi], al
-
-    mov byte [edi + 1], 0x0F
-
-    add edi, 2
-
-
-    ; --------------------------------------------------------
-    ; Keep cursor inside VGA memory.
-    ;
-    ; Normally shell strings are short enough to fit on one
-    ; line, but this prevents the cursor from going past the
-    ; VGA buffer.
-    ; --------------------------------------------------------
-
-    mov eax, edi
-
-    sub eax, VGA_MEMORY
-
-    cmp eax, SCREEN_WIDTH * SCREEN_HEIGHT * 2
-
-    jb print_string_loop
-
-
-    ; --------------------------------------------------------
-    ; If string reached the end of screen, scroll.
-    ; --------------------------------------------------------
-
-    call scroll_screen
-
-    mov edi, VGA_MEMORY + ((SCREEN_HEIGHT - 1) * VGA_ROW_SIZE)
-
-
-    jmp print_string_loop
-
-
-print_string_done:
-
-    mov [print_cursor], edi
-
-    pop edi
-    pop eax
-
-    ret
-
-
-; ============================================================
-; PRINT NEWLINE
-;
-; Moves shell cursor to the next row.
-;
-; If the cursor is already beyond the last row,
-; scroll the screen upward by one row.
-; ============================================================
-
-print_newline:
-
-    push eax
-    push ebx
-    push edx
-    push edi
-
-
-    ; --------------------------------------------------------
-    ; Convert VGA address to row number
-    ; --------------------------------------------------------
-
-    mov edi, [print_cursor]
-
-    sub edi, VGA_MEMORY
-
-    mov eax, edi
-
-    xor edx, edx
-
-    mov ebx, VGA_ROW_SIZE
-
-    div ebx
-
-
-    ; --------------------------------------------------------
-    ; Move to next row
-    ; --------------------------------------------------------
-
-    inc eax
-
-
-    ; --------------------------------------------------------
-    ; Check bottom of screen
-    ; --------------------------------------------------------
-
-    cmp eax, SCREEN_HEIGHT
-
-    jb print_newline_no_scroll
-
-
-    ; --------------------------------------------------------
-    ; Screen is full.
-    ;
-    ; Scroll everything up one row.
-    ; --------------------------------------------------------
-
-    call scroll_screen
-
-
-    ; --------------------------------------------------------
-    ; Continue on last row.
-    ; --------------------------------------------------------
-
-    mov eax, SCREEN_HEIGHT - 1
-
-
-print_newline_no_scroll:
-
-    imul eax, VGA_ROW_SIZE
-
-    add eax, VGA_MEMORY
-
-    mov [print_cursor], eax
-
-
-    pop edi
-    pop edx
-    pop ebx
-    pop eax
-
-    ret
-
-
-; ============================================================
-; SHELL PRINT PROMPT
-;
-; Synchronizes the keyboard driver's cursor with the shell's
-; output cursor.
-;
-; This is required after screen scrolling.
-; ============================================================
-
-shell_print_prompt:
-
-    ; --------------------------------------------------------
-    ; Get shell output cursor
-    ; --------------------------------------------------------
-
-    mov eax, [print_cursor]
-
-
-    ; --------------------------------------------------------
-    ; Synchronize keyboard driver
-    ;
-    ; keyboard_set_cursor also updates input_start.
-    ; --------------------------------------------------------
-
-    call keyboard_set_cursor
-
-
-    ; --------------------------------------------------------
-    ; Draw:
-    ;
-    ; > _
-    ; --------------------------------------------------------
-
-    call keyboard_print_prompt
-
-    ret
-
-
-; ============================================================
-; SCROLL SCREEN
-;
-; Moves rows 1-24 to rows 0-23.
-;
-; Row 24 is cleared.
-;
-; Result:
-;
-;   Row 0  <- Row 1
-;   Row 1  <- Row 2
-;   ...
-;   Row 23 <- Row 24
-;   Row 24 <- blank
-; ============================================================
-
-scroll_screen:
-
-    push eax
-    push ecx
-    push esi
-    push edi
-    pushfd
-
-
-    ; --------------------------------------------------------
-    ; Make sure string instructions move forward.
-    ; --------------------------------------------------------
-
-    cld
-
-
-    ; --------------------------------------------------------
-    ; Source:
-    ;
-    ; Row 1
-    ;
-    ; Destination:
-    ;
-    ; Row 0
-    ; --------------------------------------------------------
-
-    mov esi, VGA_MEMORY + VGA_ROW_SIZE
-
-    mov edi, VGA_MEMORY
-
-
-    ; --------------------------------------------------------
-    ; Copy rows 1-24 into rows 0-23.
-    ;
-    ; 24 rows × 80 characters
-    ; Each character cell = 2 bytes
-    ;
-    ; rep movsw copies one 16-bit character cell.
-    ; --------------------------------------------------------
-
-    mov ecx, (SCREEN_HEIGHT - 1) * SCREEN_WIDTH
-
-    rep movsw
-
-
-    ; --------------------------------------------------------
-    ; Clear bottom row.
-    ; --------------------------------------------------------
-
-    mov edi, VGA_MEMORY + ((SCREEN_HEIGHT - 1) * VGA_ROW_SIZE)
-
-    mov ecx, SCREEN_WIDTH
-
-    mov ax, 0x0720
-
-
-scroll_clear_bottom:
-
-    mov [edi], ax
-
-    add edi, 2
-
-    loop scroll_clear_bottom
-
-
-    popfd
-    pop edi
-    pop esi
-    pop ecx
-    pop eax
-
-    ret
-
-
-; ============================================================
-; CLEAR SCREEN
-; ============================================================
-
-clear_screen:
-
-    push eax
-    push ecx
-    push edi
-
-
-    mov edi, VGA_MEMORY
-
-    mov ecx, SCREEN_WIDTH * SCREEN_HEIGHT
-
-    mov ax, 0x0720
-
-
-clear_screen_loop:
-
-    mov [edi], ax
-
-    add edi, 2
-
-    loop clear_screen_loop
-
-
-    ; --------------------------------------------------------
-    ; Reset shell output cursor.
-    ; --------------------------------------------------------
-
-    mov dword [print_cursor], VGA_MEMORY
-
-
-    pop edi
-    pop ecx
-    pop eax
-
-    ret
-
-
-; ============================================================
 ; DATA
 ; ============================================================
 
@@ -990,15 +737,6 @@ shell_command_length:
 shell_buffer:
 
     times SHELL_BUFFER_SIZE db 0
-
-
-; ============================================================
-; SHELL OUTPUT CURSOR
-; ============================================================
-
-print_cursor:
-
-    dd VGA_MEMORY + (3 * VGA_ROW_SIZE)
 
 
 ; ============================================================

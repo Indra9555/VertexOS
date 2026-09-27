@@ -3,90 +3,86 @@
 
 global kernel_start
 
+
+extern console_init
+extern console_print
+extern console_newline
+
 extern idt_init
 extern pic_init
+
 extern keyboard_print_prompt
+
 extern shell_init
 extern shell_update
-extern console_init
 
 
 ; ============================================================
 ; VertexOS Kernel Entry Point
+;
+; Kernel output is handled by the Console subsystem.
+;
 ; ============================================================
 
 kernel_start:
 
-    ; --------------------------------------------------------
-    ; Initialize Console
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; INITIALIZE CONSOLE
+    ; ========================================================
 
     call console_init
 
 
-    ; --------------------------------------------------------
-    ; Clear VGA text screen
-    ; --------------------------------------------------------
-
-    mov edi, 0xB8000
-    mov ecx, 80 * 25
-    mov ax, 0x0720
-
-.clear_screen:
-
-    mov [edi], ax
-    add edi, 2
-
-    loop .clear_screen
-
-
-    ; --------------------------------------------------------
-    ; Print VertexOS title
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; PRINT KERNEL TITLE
+    ; ========================================================
 
     mov esi, title_msg
-    mov edi, 0xB8000
 
-    call print_string
+    call console_print
+
+    call console_newline
 
 
-    ; --------------------------------------------------------
-    ; Print kernel status
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; PRINT KERNEL STATUS
+    ; ========================================================
 
     mov esi, status_msg
-    mov edi, 0xB80A0
 
-    call print_string
+    call console_print
+
+    call console_newline
 
 
-    ; --------------------------------------------------------
-    ; Print architecture information
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; PRINT ARCHITECTURE INFORMATION
+    ; ========================================================
 
     mov esi, arch_msg
-    mov edi, 0xB8140
 
-    call print_string
+    call console_print
+
+    call console_newline
 
 
-    ; --------------------------------------------------------
-    ; Initialize IDT
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; INITIALIZE IDT
+    ; ========================================================
 
     call idt_init
 
 
-    ; --------------------------------------------------------
-    ; Initialize PIC
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; INITIALIZE PIC
+    ; ========================================================
 
     call pic_init
 
 
-    ; --------------------------------------------------------
-    ; Enable keyboard IRQ1
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; ENABLE KEYBOARD IRQ1
+    ; ========================================================
 
     in al, 0x21
 
@@ -95,73 +91,109 @@ kernel_start:
     out 0x21, al
 
 
-    ; --------------------------------------------------------
-    ; Initialize shell
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; INITIALIZE SHELL
+    ; ========================================================
 
     call shell_init
 
 
+    ; ========================================================
+    ; PRINT INITIAL SHELL PROMPT
+    ;
+    ; At this point the console cursor is already at:
+    ;
+    ;   row 3, column 0
+    ;
+    ; because the kernel printed three lines.
+    ;
+    ; keyboard_print_prompt will be synchronized by the shell.
+    ;
+    ; ========================================================
+
+    call shell_print_initial_prompt
+
+
+    ; ========================================================
+    ; ENABLE CPU INTERRUPTS
+    ; ========================================================
+
+    sti
+
+
+    ; ========================================================
+    ; MAIN KERNEL LOOP
+    ; ========================================================
+
+kernel_loop:
+
+    call shell_update
+
+    hlt
+
+    jmp kernel_loop
+
+
+; ============================================================
+; INITIAL SHELL PROMPT
+;
+; The shell normally synchronizes the console and keyboard
+; cursors through shell_print_prompt.
+;
+; For the first prompt, the console cursor is already at the
+; correct position after the three kernel messages.
+;
+; ============================================================
+
+shell_print_initial_prompt:
+
     ; --------------------------------------------------------
-    ; Print initial shell prompt
+    ; The console cursor currently points at:
+    ;
+    ;   Row 3, Column 0
+    ;
+    ; Synchronize keyboard cursor with it.
+    ; --------------------------------------------------------
+
+    extern console_get_cursor
+    extern keyboard_set_cursor
+
+    call console_get_cursor
+
+    call keyboard_set_cursor
+
+
+    ; --------------------------------------------------------
+    ; Draw:
+    ;
+    ;   > _
     ; --------------------------------------------------------
 
     call keyboard_print_prompt
 
 
     ; --------------------------------------------------------
-    ; Enable CPU interrupts
+    ; keyboard_print_prompt advances its cursor by:
+    ;
+    ;   '>' = 2 bytes
+    ;   ' ' = 2 bytes
+    ;
+    ; Keep console cursor synchronized.
     ; --------------------------------------------------------
 
-    sti
+    call console_get_cursor
 
+    add eax, 4
 
-    ; --------------------------------------------------------
-    ; Main kernel loop
-    ; --------------------------------------------------------
+    extern console_set_cursor
 
-.hang:
-
-    call shell_update
-
-    hlt
-
-    jmp .hang
-
-
-; ============================================================
-; print_string
-;
-; ESI = source string
-; EDI = VGA destination
-; ============================================================
-
-print_string:
-
-.next_char:
-
-    lodsb
-
-    test al, al
-
-    jz .done
-
-    mov [edi], al
-
-    mov byte [edi + 1], 0x0F
-
-    add edi, 2
-
-    jmp .next_char
-
-
-.done:
+    call console_set_cursor
 
     ret
 
 
 ; ============================================================
-; Kernel Messages
+; KERNEL MESSAGES
 ; ============================================================
 
 title_msg:
