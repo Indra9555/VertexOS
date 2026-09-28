@@ -5,14 +5,19 @@ section .text
 global shell_init
 global shell_update
 
+
+; ============================================================
+; EXTERNAL COMPONENTS
+; ============================================================
+
 extern keyboard_get_input
 extern keyboard_command_ready
-extern keyboard_print_prompt
 extern keyboard_set_cursor
 
+extern console_clear
+extern console_putc
 extern console_print
 extern console_newline
-extern console_clear
 extern console_get_cursor
 extern console_set_cursor
 
@@ -20,26 +25,19 @@ extern console_set_cursor
 ; ============================================================
 ; VertexOS Shell
 ;
-; Commands:
+; Responsibilities:
 ;
-;   help
-;   about
-;   version
-;   info
-;   clear
-;   echo <text>
+;   - Command processing
+;   - Command parsing
+;   - Shell state
+;   - Interaction with keyboard driver
+;   - Interaction with console subsystem
 ;
-; Architecture:
+; The shell does NOT directly manipulate VGA memory.
 ;
-;   Keyboard Driver
-;          ↓
-;        Shell
-;          ↓
-;       Console
-;          ↓
-;      VGA Memory
+; Output path:
 ;
-; The Shell does NOT directly manipulate VGA memory.
+;   Shell -> Console -> VGA
 ;
 ; ============================================================
 
@@ -48,16 +46,7 @@ extern console_set_cursor
 ; CONSTANTS
 ; ============================================================
 
-VGA_MEMORY          equ 0xB8000
-
-SCREEN_WIDTH        equ 80
-SCREEN_HEIGHT       equ 25
-
-VGA_ROW_SIZE        equ SCREEN_WIDTH * 2
-
-SHELL_START_ROW     equ 3
-
-SHELL_BUFFER_SIZE   equ 128
+SHELL_BUFFER_SIZE equ 128
 
 
 ; ============================================================
@@ -77,13 +66,12 @@ shell_init:
 ; Called repeatedly by the kernel.
 ;
 ; Checks whether the keyboard driver has completed a command.
-;
 ; ============================================================
 
 shell_update:
 
     ; --------------------------------------------------------
-    ; Has ENTER been pressed?
+    ; Check command-ready flag
     ; --------------------------------------------------------
 
     cmp byte [keyboard_command_ready], 1
@@ -92,14 +80,14 @@ shell_update:
 
 
     ; --------------------------------------------------------
-    ; Clear command-ready flag.
+    ; Clear command-ready flag
     ; --------------------------------------------------------
 
     mov byte [keyboard_command_ready], 0
 
 
     ; --------------------------------------------------------
-    ; Copy command from keyboard driver.
+    ; Get command from keyboard driver
     ;
     ; EDI = destination buffer
     ; EAX = command length
@@ -111,14 +99,14 @@ shell_update:
 
 
     ; --------------------------------------------------------
-    ; Save command length.
+    ; Save command length
     ; --------------------------------------------------------
 
     mov [shell_command_length], eax
 
 
     ; --------------------------------------------------------
-    ; Execute command.
+    ; Execute command
     ; --------------------------------------------------------
 
     call shell_execute
@@ -136,7 +124,7 @@ shell_update_done:
 shell_execute:
 
     ; --------------------------------------------------------
-    ; Empty command.
+    ; Empty command
     ; --------------------------------------------------------
 
     cmp dword [shell_command_length], 0
@@ -389,31 +377,27 @@ shell_cmd_info:
 shell_cmd_clear:
 
     ; --------------------------------------------------------
-    ; Clear complete screen through console subsystem.
+    ; Clear the entire console
     ; --------------------------------------------------------
 
     call console_clear
 
 
     ; --------------------------------------------------------
-    ; Console cursor is now at top-left.
+    ; Reserve the first three rows for kernel information.
     ;
-    ; Kernel information occupies rows:
-    ;
-    ;   Row 0 = title
-    ;   Row 1 = kernel status
-    ;   Row 2 = architecture
-    ;
-    ; Shell starts at row 3.
+    ; Start shell output at row 3.
     ; --------------------------------------------------------
 
-    mov eax, VGA_MEMORY + (SHELL_START_ROW * VGA_ROW_SIZE)
+    call console_get_cursor
+
+    add eax, 3 * 160
 
     call console_set_cursor
 
 
     ; --------------------------------------------------------
-    ; Create shell prompt.
+    ; Synchronize keyboard and print new prompt.
     ; --------------------------------------------------------
 
     call shell_print_prompt
@@ -427,7 +411,9 @@ shell_cmd_clear:
 ; Syntax:
 ;
 ;   echo hello
+;   echo VertexOS
 ;
+; "echohello" is not accepted.
 ; ============================================================
 
 shell_cmd_echo:
@@ -436,7 +422,7 @@ shell_cmd_echo:
 
 
     ; --------------------------------------------------------
-    ; Find the space after "echo".
+    ; Find the space after "echo"
     ; --------------------------------------------------------
 
     mov esi, shell_buffer
@@ -464,14 +450,14 @@ shell_echo_find_space:
 shell_echo_found_space:
 
     ; --------------------------------------------------------
-    ; Skip space.
+    ; Skip the space
     ; --------------------------------------------------------
 
     inc esi
 
 
     ; --------------------------------------------------------
-    ; Print argument.
+    ; Print echo argument through console subsystem
     ; --------------------------------------------------------
 
     call console_print
@@ -489,88 +475,14 @@ shell_echo_empty:
 
     call shell_print_prompt
 
+    jmp shell_execute_done
+
 
 ; ============================================================
 ; SHELL EXECUTION DONE
 ; ============================================================
 
 shell_execute_done:
-
-    ret
-
-
-; ============================================================
-; SHELL PRINT PROMPT
-;
-; IMPORTANT:
-;
-; Console owns the output cursor.
-;
-; Keyboard driver owns the input cursor.
-;
-; This function synchronizes them.
-;
-; Current console position:
-;
-;       ↓
-;   console cursor
-;
-;       ↓
-;   keyboard cursor
-;
-;       ↓
-;      > _
-;
-; After drawing "> " the console cursor is advanced too.
-;
-; ============================================================
-
-shell_print_prompt:
-
-    ; --------------------------------------------------------
-    ; Get current console cursor.
-    ; --------------------------------------------------------
-
-    call console_get_cursor
-
-
-    ; --------------------------------------------------------
-    ; Give same position to keyboard driver.
-    ; --------------------------------------------------------
-
-    call keyboard_set_cursor
-
-
-    ; --------------------------------------------------------
-    ; Keyboard driver draws:
-    ;
-    ;   > _
-    ;
-    ; and advances its own cursor by 4 bytes.
-    ; --------------------------------------------------------
-
-    call keyboard_print_prompt
-
-
-    ; --------------------------------------------------------
-    ; Synchronize console cursor.
-    ;
-    ; keyboard_print_prompt does:
-    ;
-    ;   cursor + 4 bytes
-    ;
-    ; because:
-    ;
-    ;   '>' = 2 bytes
-    ;   ' ' = 2 bytes
-    ;
-    ; --------------------------------------------------------
-
-    call console_get_cursor
-
-    add eax, 4
-
-    call console_set_cursor
 
     ret
 
@@ -583,8 +495,8 @@ shell_print_prompt:
 ;
 ; Returns:
 ;
-;   EAX = 1 → equal
-;   EAX = 0 → different
+;   EAX = 1 -> equal
+;   EAX = 0 -> different
 ; ============================================================
 
 strings_equal:
@@ -642,8 +554,21 @@ strings_not_equal:
 ; Prefix must be followed by:
 ;
 ;   space
-;   or null
+;   or null terminator
 ;
+; Examples:
+;
+;   echo hello -> match
+;   echo test  -> match
+;   echo       -> match
+;
+;   echohello  -> no match
+;   echoworld  -> no match
+;
+; Returns:
+;
+;   EAX = 1 -> match
+;   EAX = 0 -> no match
 ; ============================================================
 
 string_starts_with_argument:
@@ -676,6 +601,15 @@ string_argument_loop:
 
 string_argument_prefix_done:
 
+    ; --------------------------------------------------------
+    ; Prefix matched.
+    ;
+    ; Next character must be:
+    ;
+    ;   space
+    ;   or null
+    ; --------------------------------------------------------
+
     mov al, [esi]
 
     cmp al, ' '
@@ -705,6 +639,67 @@ string_argument_no:
     xor eax, eax
 
     pop ebx
+
+    ret
+
+
+; ============================================================
+; SHELL PRINT PROMPT
+;
+; Synchronizes the keyboard driver's cursor with the Console.
+;
+; Prompt is drawn through the Console subsystem.
+;
+; Sequence:
+;
+;   1. Get console cursor
+;   2. Give cursor to keyboard driver
+;   3. Print "> "
+;   4. Get new console cursor
+;   5. Give new cursor to keyboard driver
+;
+; This keeps keyboard input and console output synchronized.
+; ============================================================
+
+shell_print_prompt:
+
+    ; --------------------------------------------------------
+    ; Get current console cursor.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+
+    ; --------------------------------------------------------
+    ; Tell keyboard driver where input begins.
+    ; --------------------------------------------------------
+
+    call keyboard_set_cursor
+
+
+    ; --------------------------------------------------------
+    ; Print shell prompt through Console.
+    ; --------------------------------------------------------
+
+    mov esi, prompt_text
+
+    call console_print
+
+
+    ; --------------------------------------------------------
+    ; Get console cursor after prompt.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+
+    ; --------------------------------------------------------
+    ; Synchronize keyboard driver again.
+    ;
+    ; Keyboard input will now begin immediately after "> ".
+    ; --------------------------------------------------------
+
+    call keyboard_set_cursor
 
     ret
 
@@ -771,6 +766,15 @@ cmd_clear:
 cmd_echo:
 
     db "echo", 0
+
+
+; ============================================================
+; PROMPT
+; ============================================================
+
+prompt_text:
+
+    db "> ", 0
 
 
 ; ============================================================
