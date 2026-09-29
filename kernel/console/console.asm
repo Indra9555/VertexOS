@@ -12,7 +12,7 @@ global console_get_cursor
 global console_set_cursor
 global console_draw_cursor
 global console_remove_cursor
-
+global console_backspace
 
 ; ============================================================
 ; VertexOS Console Subsystem
@@ -568,6 +568,66 @@ console_remove_cursor:
 
     ret
 
+
+; ============================================================
+; console_backspace
+;
+; Erases the character immediately before the current cursor.
+;
+; The Console owns:
+;
+;   - cursor movement
+;   - VGA memory access
+;   - character erasing
+;
+; After the operation, the cursor remains at the erased cell.
+;
+; ============================================================
+
+console_backspace:
+
+    push eax
+    push edi
+
+    ; --------------------------------------------------------
+    ; Get current cursor.
+    ; --------------------------------------------------------
+
+    mov edi, [console_cursor]
+
+    ; --------------------------------------------------------
+    ; Never move before VGA memory.
+    ; --------------------------------------------------------
+
+    cmp edi, VGA_MEMORY
+
+    jbe console_backspace_done
+
+    ; --------------------------------------------------------
+    ; Move to previous character cell.
+    ; --------------------------------------------------------
+
+    sub edi, 2
+
+    ; --------------------------------------------------------
+    ; Erase character.
+    ; --------------------------------------------------------
+
+    mov byte [edi], ' '
+    mov byte [edi + 1], DEFAULT_ATTRIBUTE
+
+    ; --------------------------------------------------------
+    ; Keep cursor at erased position.
+    ; --------------------------------------------------------
+
+    mov [console_cursor], edi
+
+console_backspace_done:
+
+    pop edi
+    pop eax
+
+    ret
 
 ; ============================================================
 ; DATA
