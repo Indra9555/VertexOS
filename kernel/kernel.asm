@@ -4,15 +4,29 @@
 global kernel_start
 
 
+; ============================================================
+; EXTERNAL COMPONENTS
+; ============================================================
+
+; Console subsystem
 extern console_init
 extern console_print
 extern console_newline
+extern console_get_cursor
+extern console_set_cursor
 
+
+; Interrupt subsystem
 extern idt_init
 extern pic_init
 
-extern keyboard_print_prompt
 
+; Keyboard subsystem
+extern keyboard_print_prompt
+extern keyboard_set_cursor
+
+
+; Shell subsystem
 extern shell_init
 extern shell_update
 
@@ -20,11 +34,28 @@ extern shell_update
 ; ============================================================
 ; VertexOS Kernel Entry Point
 ;
-; Kernel output is handled by the Console subsystem.
+; Kernel responsibilities:
+;
+;   - Initialize core subsystems
+;   - Display kernel startup information
+;   - Initialize interrupts
+;   - Initialize shell
+;   - Start the main kernel loop
+;
+; VGA output is handled through the Console subsystem.
+;
+; Output architecture:
+;
+;   Kernel
+;      ↓
+;   Console
+;      ↓
+;     VGA
 ;
 ; ============================================================
 
 kernel_start:
+
 
     ; ========================================================
     ; INITIALIZE CONSOLE
@@ -82,6 +113,20 @@ kernel_start:
 
     ; ========================================================
     ; ENABLE KEYBOARD IRQ1
+    ;
+    ; IRQ1 = keyboard
+    ;
+    ; PIC master data port = 0x21
+    ;
+    ; Bit 1:
+    ;   0 = IRQ1 enabled
+    ;   1 = IRQ1 masked
+    ;
+    ; Therefore:
+    ;
+    ;   AND 0xFD
+    ;
+    ; clears bit 1.
     ; ========================================================
 
     in al, 0x21
@@ -101,14 +146,14 @@ kernel_start:
     ; ========================================================
     ; PRINT INITIAL SHELL PROMPT
     ;
-    ; At this point the console cursor is already at:
+    ; At this point the Console cursor is at:
     ;
-    ;   row 3, column 0
+    ;   Row 3, Column 0
     ;
     ; because the kernel printed three lines.
     ;
-    ; keyboard_print_prompt will be synchronized by the shell.
-    ;
+    ; The keyboard driver still owns the temporary visible
+    ; input cursor, so we synchronize it with the Console.
     ; ========================================================
 
     call shell_print_initial_prompt
@@ -123,6 +168,9 @@ kernel_start:
 
     ; ========================================================
     ; MAIN KERNEL LOOP
+    ;
+    ; The CPU waits for interrupts when there is no shell
+    ; work to process.
     ; ========================================================
 
 kernel_loop:
@@ -137,63 +185,82 @@ kernel_loop:
 ; ============================================================
 ; INITIAL SHELL PROMPT
 ;
-; The shell normally synchronizes the console and keyboard
-; cursors through shell_print_prompt.
+; Synchronization sequence:
 ;
-; For the first prompt, the console cursor is already at the
-; correct position after the three kernel messages.
+;   Console cursor
+;        ↓
+;   Keyboard cursor
+;        ↓
+;   keyboard_print_prompt
+;        ↓
+;   Console cursor updated
 ;
+; keyboard_print_prompt currently writes:
+;
+;   > _
+;
+; directly to VGA.
+;
+; This is temporary and will be moved into the Console-based
+; architecture during the Keyboard → Console integration.
 ; ============================================================
 
 shell_print_initial_prompt:
 
     ; --------------------------------------------------------
-    ; The console cursor currently points at:
+    ; Get current Console cursor.
     ;
-    ;   Row 3, Column 0
+    ; Expected:
     ;
-    ; Synchronize keyboard cursor with it.
+    ;   VGA_MEMORY + (3 * 160)
+    ;
     ; --------------------------------------------------------
 
-    extern console_get_cursor
-    extern keyboard_set_cursor
-
     call console_get_cursor
+
+
+    ; --------------------------------------------------------
+    ; Synchronize keyboard input position.
+    ;
+    ; keyboard_set_cursor also updates input_start.
+    ; --------------------------------------------------------
 
     call keyboard_set_cursor
 
 
     ; --------------------------------------------------------
-    ; Draw:
+    ; Print:
     ;
     ;   > _
+    ;
+    ; keyboard_print_prompt currently handles the visible
+    ; keyboard cursor.
     ; --------------------------------------------------------
 
     call keyboard_print_prompt
 
 
     ; --------------------------------------------------------
-    ; keyboard_print_prompt advances its cursor by:
+    ; keyboard_print_prompt advances its internal cursor by:
     ;
     ;   '>' = 2 bytes
     ;   ' ' = 2 bytes
     ;
-    ; Keep console cursor synchronized.
+    ; Therefore the Console cursor must advance by 4 bytes.
     ; --------------------------------------------------------
 
     call console_get_cursor
 
     add eax, 4
 
-    extern console_set_cursor
-
     call console_set_cursor
+
 
     ret
 
 
 ; ============================================================
-; KERNEL MESSAGES
+; KERNEL STARTUP MESSAGES
 ; ============================================================
 
 title_msg:

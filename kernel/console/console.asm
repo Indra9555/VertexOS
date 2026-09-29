@@ -10,6 +10,8 @@ global console_newline
 global console_scroll
 global console_get_cursor
 global console_set_cursor
+global console_draw_cursor
+global console_remove_cursor
 
 
 ; ============================================================
@@ -36,6 +38,17 @@ global console_set_cursor
 ;   - Newline handling
 ;   - Automatic scrolling
 ;   - Cursor management
+;   - Cursor rendering
+;
+; Architecture:
+;
+;   Higher-level components
+;           ↓
+;        Console API
+;           ↓
+;         VGA RAM
+;
+; The Console subsystem is the owner of VGA memory.
 ;
 ; ============================================================
 
@@ -96,7 +109,7 @@ console_clear:
 
     mov ecx, SCREEN_WIDTH * SCREEN_HEIGHT
 
-    ; Space character + normal gray attribute
+    ; Space character + clear attribute
     mov ax, 0x0720
 
 
@@ -178,10 +191,7 @@ console_putc:
 
 
     ; --------------------------------------------------------
-    ; If cursor reached end of VGA memory, scroll.
-    ;
-    ; This also protects against writing beyond the screen
-    ; when a character is written in the last cell.
+    ; Check whether cursor moved past screen.
     ; --------------------------------------------------------
 
     mov eax, edi
@@ -192,6 +202,12 @@ console_putc:
 
     jb console_putc_done
 
+
+    ; --------------------------------------------------------
+    ; Screen reached.
+    ;
+    ; Scroll one row and keep cursor on bottom row.
+    ; --------------------------------------------------------
 
     call console_scroll
 
@@ -253,9 +269,9 @@ console_print_done:
 ; ============================================================
 ; console_newline
 ;
-; Move cursor to the beginning of the next row.
+; Move cursor to beginning of next row.
 ;
-; If the cursor is already on the last row:
+; If cursor is already on the last row:
 ;
 ;   - Scroll screen
 ;   - Keep cursor on last row
@@ -300,7 +316,7 @@ console_newline:
 
 
     ; --------------------------------------------------------
-    ; Check if next row is still visible
+    ; Check if next row is visible
     ; --------------------------------------------------------
 
     cmp eax, SCREEN_HEIGHT
@@ -311,13 +327,11 @@ console_newline:
     ; --------------------------------------------------------
     ; Screen is full.
     ;
-    ; Move all rows upward.
+    ; Scroll screen upward.
     ; --------------------------------------------------------
 
     call console_scroll
 
-
-    ; Continue writing on bottom row.
     mov eax, SCREEN_HEIGHT - 1
 
 
@@ -375,32 +389,30 @@ console_scroll:
 
 
     ; --------------------------------------------------------
-    ; Always copy forward.
+    ; Copy forward.
     ; --------------------------------------------------------
 
     cld
 
 
     ; --------------------------------------------------------
-    ; Source:
-    ;
-    ; Row 1
+    ; Source = Row 1
     ; --------------------------------------------------------
 
     mov esi, VGA_MEMORY + VGA_ROW_SIZE
 
 
     ; --------------------------------------------------------
-    ; Destination:
-    ;
-    ; Row 0
+    ; Destination = Row 0
     ; --------------------------------------------------------
 
     mov edi, VGA_MEMORY
 
 
     ; --------------------------------------------------------
-    ; Copy 24 rows × 80 cells.
+    ; Copy:
+    ;
+    ; 24 rows × 80 cells
     ;
     ; One VGA cell = 16 bits.
     ; --------------------------------------------------------
@@ -469,6 +481,90 @@ console_get_cursor:
 console_set_cursor:
 
     mov [console_cursor], eax
+
+    ret
+
+
+; ============================================================
+; console_draw_cursor
+;
+; Draw the visible input cursor.
+;
+; Current representation:
+;
+;   _
+;
+; The cursor is drawn at the current console cursor position.
+;
+; IMPORTANT:
+;
+; Only the Console subsystem accesses VGA memory.
+;
+; ============================================================
+
+console_draw_cursor:
+
+    push eax
+    push edi
+
+
+    ; --------------------------------------------------------
+    ; Get current console cursor.
+    ; --------------------------------------------------------
+
+    mov edi, [console_cursor]
+
+
+    ; --------------------------------------------------------
+    ; Draw visible cursor.
+    ; --------------------------------------------------------
+
+    mov byte [edi], '_'
+
+    mov byte [edi + 1], DEFAULT_ATTRIBUTE
+
+
+    pop edi
+    pop eax
+
+    ret
+
+
+; ============================================================
+; console_remove_cursor
+;
+; Remove the visible input cursor.
+;
+; Replaces "_" with a blank space.
+;
+; The console cursor itself does NOT move.
+;
+; ============================================================
+
+console_remove_cursor:
+
+    push eax
+    push edi
+
+
+    ; --------------------------------------------------------
+    ; Get current console cursor.
+    ; --------------------------------------------------------
+
+    mov edi, [console_cursor]
+
+
+    ; --------------------------------------------------------
+    ; Replace cursor with blank.
+    ; --------------------------------------------------------
+
+    mov byte [edi], ' '
+
+    mov byte [edi + 1], DEFAULT_ATTRIBUTE
+
+
+    pop edi
+    pop eax
 
     ret
 

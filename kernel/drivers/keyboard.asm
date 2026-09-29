@@ -13,37 +13,53 @@ global keyboard_get_cursor
 
 
 ; ============================================================
+; EXTERNAL CONSOLE
+; ============================================================
+
+extern console_putc
+extern console_get_cursor
+extern console_set_cursor
+extern console_draw_cursor
+extern console_remove_cursor
+
+
+; ============================================================
 ; VertexOS Keyboard Driver
 ;
 ; IRQ1 = Keyboard
 ; Keyboard data port = 0x60
 ; PIC master command port = 0x20
 ;
-; Features:
-;   - Normal characters
-;   - Shift
-;   - Enter
-;   - Backspace
-;   - Input buffer
-;   - Command-line editing
-;   - Prompt protection
-;   - Visible "_" cursor
-;   - Shell command handoff
+; Responsibilities:
+;
+;   - Read keyboard scancodes
+;   - Translate keys
+;   - Handle Shift
+;   - Handle Enter
+;   - Handle Backspace
+;   - Maintain input buffer
+;   - Maintain command-ready state
+;   - Manage command-line editing
+;
+; Display output is handled completely through the
+; Console subsystem.
+;
+; Architecture:
+;
+;   Keyboard Driver
+;        ↓
+;     Console
+;        ↓
+;       VGA
+;
+; The keyboard driver does NOT access VGA memory directly.
+;
 ; ============================================================
 
 
 ; ============================================================
 ; CONSTANTS
 ; ============================================================
-
-VGA_MEMORY          equ 0xB8000
-
-SCREEN_WIDTH        equ 80
-SCREEN_HEIGHT       equ 25
-
-VGA_ROW_SIZE        equ SCREEN_WIDTH * 2
-
-INPUT_START         equ VGA_MEMORY + (3 * VGA_ROW_SIZE)
 
 INPUT_BUFFER_SIZE   equ 128
 
@@ -58,47 +74,81 @@ keyboard_handler:
 
     pushad
 
+
+    ; --------------------------------------------------------
     ; Read keyboard scancode
+    ; --------------------------------------------------------
+
     in al, 0x60
 
 
+    ; --------------------------------------------------------
     ; Ignore key-release scancodes
+    ; --------------------------------------------------------
+
     test al, 0x80
+
     jnz keyboard_key_release
 
 
+    ; --------------------------------------------------------
     ; Left Shift
+    ; --------------------------------------------------------
+
     cmp al, 0x2A
+
     je keyboard_shift_press
 
 
+    ; --------------------------------------------------------
     ; Right Shift
+    ; --------------------------------------------------------
+
     cmp al, 0x36
+
     je keyboard_shift_press
 
 
+    ; --------------------------------------------------------
     ; Enter
+    ; --------------------------------------------------------
+
     cmp al, 0x1C
+
     je keyboard_enter
 
 
+    ; --------------------------------------------------------
     ; Backspace
+    ; --------------------------------------------------------
+
     cmp al, 0x0E
+
     je keyboard_backspace
 
 
+    ; --------------------------------------------------------
     ; Convert scancode to character
+    ; --------------------------------------------------------
+
     movzx eax, al
 
     cmp eax, 0x39
+
     ja keyboard_done
 
 
+    ; --------------------------------------------------------
     ; Check Shift state
+    ; --------------------------------------------------------
+
     cmp byte [shift_pressed], 0
+
     je keyboard_normal_character
 
+
     mov al, [shift_table + eax]
+
     jmp keyboard_character_ready
 
 
@@ -109,42 +159,64 @@ keyboard_normal_character:
 
 keyboard_character_ready:
 
+    ; --------------------------------------------------------
     ; Ignore unmapped keys
+    ; --------------------------------------------------------
+
     test al, al
+
     jz keyboard_done
 
 
+    ; --------------------------------------------------------
     ; Prevent input overflow
+    ; --------------------------------------------------------
+
     cmp dword [input_length], MAX_INPUT_LENGTH
+
     jae keyboard_done
 
 
     ; --------------------------------------------------------
-    ; Current cursor points to "_"
-    ; Replace cursor with typed character
+    ; Save character in input buffer
     ; --------------------------------------------------------
 
-    mov edi, [cursor_position]
-
-    mov [edi], al
-    mov byte [edi + 1], 0x0F
-
-
-    ; Save character
     call buffer_write
 
 
-    ; Move cursor forward
-    add edi, 2
-    mov [cursor_position], edi
+    ; --------------------------------------------------------
+    ; Display character through Console.
+    ;
+    ; AL = character
+    ; --------------------------------------------------------
+
+    call console_putc
 
 
+    ; --------------------------------------------------------
+    ; Update keyboard cursor from Console cursor.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+    mov [cursor_position], eax
+
+
+    ; --------------------------------------------------------
     ; Increase input length
+    ; --------------------------------------------------------
+
     inc dword [input_length]
 
 
-    ; Draw new cursor
-    call keyboard_draw_cursor
+    ; --------------------------------------------------------
+    ; Draw visible cursor.
+    ;
+    ; Console owns cursor rendering.
+    ; --------------------------------------------------------
+
+    call console_draw_cursor
+
 
     jmp keyboard_done
 
@@ -167,10 +239,14 @@ keyboard_shift_press:
 keyboard_key_release:
 
     cmp al, 0xAA
+
     je keyboard_shift_release
 
+
     cmp al, 0xB6
+
     je keyboard_shift_release
+
 
     jmp keyboard_done
 
@@ -189,40 +265,72 @@ keyboard_shift_release:
 ; ============================================================
 ; ENTER
 ;
-; IMPORTANT:
+; The keyboard driver does not execute commands.
 ;
-; The keyboard driver does NOT clear the input buffer here.
+; It only:
 ;
-; It only marks the command as ready.
+;   - removes the visible cursor
+;   - moves to the next console line
+;   - marks the command ready
 ;
-; The shell will read the command using keyboard_get_input().
+; The shell retrieves the command later.
+;
 ; ============================================================
 
 keyboard_enter:
 
-    ; Do nothing for empty command
+    ; --------------------------------------------------------
+    ; Ignore Enter when input is empty.
+    ; --------------------------------------------------------
+
     cmp dword [input_length], 0
+
     je keyboard_done
 
 
-    ; Remove visible cursor
-    mov edi, [cursor_position]
+    ; --------------------------------------------------------
+    ; Remove visible cursor.
+    ; --------------------------------------------------------
 
-    mov byte [edi], ' '
-    mov byte [edi + 1], 0x0F
+    call console_remove_cursor
 
 
-    ; Mark command ready
+    ; --------------------------------------------------------
+    ; Move to next line.
+    ;
+    ; Console owns newline and scrolling.
+    ; --------------------------------------------------------
+
+    mov al, 10
+
+    call console_putc
+
+
+    ; --------------------------------------------------------
+    ; Update keyboard cursor from Console.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+    mov [cursor_position], eax
+
+
+    ; --------------------------------------------------------
+    ; Mark command ready.
+    ; --------------------------------------------------------
+
     mov byte [keyboard_command_ready], 1
 
 
+    ; --------------------------------------------------------
     ; Do NOT:
     ;
     ; - clear input buffer
     ; - reset input length
-    ; - print new prompt
+    ; - print a new prompt
     ;
-    ; The shell will do that after executing the command.
+    ; Shell performs those operations.
+    ; --------------------------------------------------------
 
     jmp keyboard_done
 
@@ -233,56 +341,92 @@ keyboard_enter:
 
 keyboard_backspace:
 
-    ; Nothing to delete
+    ; --------------------------------------------------------
+    ; Nothing to delete.
+    ; --------------------------------------------------------
+
     cmp dword [input_length], 0
+
     je keyboard_done
 
 
-    ; Remove old cursor
-    mov edi, [cursor_position]
+    ; --------------------------------------------------------
+    ; Remove visible cursor.
+    ; --------------------------------------------------------
 
-    mov byte [edi], ' '
-    mov byte [edi + 1], 0x0F
-
-
-    ; Move backwards
-    sub edi, 2
+    call console_remove_cursor
 
 
-    ; Never cross prompt
-    cmp edi, [input_start]
+    ; --------------------------------------------------------
+    ; Get current Console cursor.
+    ;
+    ; Console cursor points to the position AFTER the
+    ; last entered character.
+    ; --------------------------------------------------------
 
-    jb keyboard_backspace_restore
+    call console_get_cursor
 
-
-    ; Erase previous character
-    mov byte [edi], ' '
-    mov byte [edi + 1], 0x0F
-
-
-    ; Update cursor
-    mov [cursor_position], edi
+    sub eax, 2
 
 
-    ; Remove character from buffer
+    ; --------------------------------------------------------
+    ; Move Console cursor backwards.
+    ; --------------------------------------------------------
+
+    call console_set_cursor
+
+
+    ; --------------------------------------------------------
+    ; Erase character using Console.
+    ; --------------------------------------------------------
+
+    mov al, ' '
+
+    call console_putc
+
+
+    ; --------------------------------------------------------
+    ; console_putc advanced the cursor again.
+    ;
+    ; Move it back to the deleted character position.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+    sub eax, 2
+
+    call console_set_cursor
+
+
+    ; --------------------------------------------------------
+    ; Update keyboard cursor.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+    mov [cursor_position], eax
+
+
+    ; --------------------------------------------------------
+    ; Remove character from input buffer.
+    ; --------------------------------------------------------
+
     call buffer_backspace
 
 
-    ; Decrease input length
+    ; --------------------------------------------------------
+    ; Decrease input length.
+    ; --------------------------------------------------------
+
     dec dword [input_length]
 
 
-    ; Draw cursor
-    call keyboard_draw_cursor
+    ; --------------------------------------------------------
+    ; Draw visible cursor.
+    ; --------------------------------------------------------
 
-    jmp keyboard_done
+    call console_draw_cursor
 
-
-keyboard_backspace_restore:
-
-    mov [cursor_position], edi
-
-    call keyboard_draw_cursor
 
     jmp keyboard_done
 
@@ -293,9 +437,14 @@ keyboard_backspace_restore:
 
 keyboard_done:
 
-    ; Send EOI to master PIC
+    ; --------------------------------------------------------
+    ; Send EOI to master PIC.
+    ; --------------------------------------------------------
+
     mov al, 0x20
+
     out 0x20, al
+
 
     popad
 
@@ -313,12 +462,17 @@ buffer_write:
     push eax
     push ebx
 
+
     mov ebx, [input_buffer_write]
 
+
     cmp ebx, INPUT_BUFFER_SIZE - 1
+
     jae buffer_write_done
 
+
     mov [input_buffer + ebx], al
+
 
     inc ebx
 
@@ -342,14 +496,20 @@ buffer_backspace:
     push eax
     push ebx
 
+
     mov ebx, [input_buffer_write]
 
+
     cmp ebx, 0
+
     je buffer_backspace_done
+
 
     dec ebx
 
+
     mov byte [input_buffer + ebx], 0
+
 
     mov [input_buffer_write], ebx
 
@@ -371,15 +531,19 @@ buffer_clear:
     push eax
     push ecx
 
+
     xor eax, eax
 
 
 buffer_clear_loop:
 
     cmp eax, INPUT_BUFFER_SIZE
+
     jae buffer_clear_done
 
+
     mov byte [input_buffer + eax], 0
+
 
     inc eax
 
@@ -395,100 +559,68 @@ buffer_clear_done:
 
 
 ; ============================================================
-; CLEAR VGA SCREEN
-; ============================================================
-
-keyboard_clear_screen:
-
-    push eax
-    push ecx
-    push edi
-
-    mov edi, VGA_MEMORY
-
-    mov ecx, SCREEN_WIDTH * SCREEN_HEIGHT
-
-    mov ax, 0x0720
-
-
-keyboard_clear_screen_loop:
-
-    mov [edi], ax
-
-    add edi, 2
-
-    loop keyboard_clear_screen_loop
-
-    pop edi
-    pop ecx
-    pop eax
-
-    ret
-
-
-; ============================================================
-; DRAW CURSOR
-;
-; Draw "_" at current cursor position.
-; ============================================================
-
-keyboard_draw_cursor:
-
-    push eax
-    push edi
-
-    mov edi, [cursor_position]
-
-    mov byte [edi], '_'
-    mov byte [edi + 1], 0x0F
-
-    pop edi
-    pop eax
-
-    ret
-
-
-; ============================================================
 ; PRINT PROMPT
 ;
 ; Prints:
 ;
-; > _
+;   > _
+;
+; The Console owns all display operations.
 ;
 ; ============================================================
 
 keyboard_print_prompt:
 
     push eax
-    push edi
-
-    mov edi, [cursor_position]
 
 
-    ; Print >
-    mov byte [edi], '>'
-    mov byte [edi + 1], 0x0F
+    ; --------------------------------------------------------
+    ; Get current Console cursor.
+    ; --------------------------------------------------------
 
-    add edi, 2
+    call console_get_cursor
+
+    mov [cursor_position], eax
+
+    mov [input_start], eax
 
 
+    ; --------------------------------------------------------
+    ; Print '>'
+    ; --------------------------------------------------------
+
+    mov al, '>'
+
+    call console_putc
+
+
+    ; --------------------------------------------------------
     ; Print space
-    mov byte [edi], ' '
-    mov byte [edi + 1], 0x0F
+    ; --------------------------------------------------------
 
-    add edi, 2
+    mov al, ' '
 
-
-    ; Save input start
-    mov [cursor_position], edi
-    mov [input_start], edi
+    call console_putc
 
 
-    ; Draw cursor
-    call keyboard_draw_cursor
+    ; --------------------------------------------------------
+    ; Save beginning of user input.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+    mov [cursor_position], eax
+
+    mov [input_start], eax
 
 
-    pop edi
+    ; --------------------------------------------------------
+    ; Draw cursor.
+    ; --------------------------------------------------------
+
+    call console_draw_cursor
+
+
     pop eax
 
     ret
@@ -498,12 +630,16 @@ keyboard_print_prompt:
 ; GET CURSOR
 ;
 ; Returns:
-;   EAX = current VGA cursor position
+;
+;   EAX = current console cursor position
+;
 ; ============================================================
 
 keyboard_get_cursor:
 
-    mov eax, [cursor_position]
+    call console_get_cursor
+
+    mov [cursor_position], eax
 
     ret
 
@@ -512,16 +648,32 @@ keyboard_get_cursor:
 ; SET CURSOR
 ;
 ; Input:
-;   EAX = VGA cursor position
 ;
-; Also updates input_start.
+;   EAX = VGA cursor address
+;
+; Used by shell/kernel to synchronize the keyboard
+; input position with the Console.
+;
 ; ============================================================
 
 keyboard_set_cursor:
 
+    push eax
+
+
     mov [cursor_position], eax
 
     mov [input_start], eax
+
+
+    ; --------------------------------------------------------
+    ; Synchronize Console cursor.
+    ; --------------------------------------------------------
+
+    call console_set_cursor
+
+
+    pop eax
 
     ret
 
@@ -532,9 +684,11 @@ keyboard_set_cursor:
 ; EDI = destination buffer
 ;
 ; Returns:
+;
 ;   EAX = number of characters copied
 ;
-; This function clears the keyboard buffer AFTER copying it.
+; The keyboard buffer is cleared after copying.
+;
 ; ============================================================
 
 keyboard_get_input:
@@ -547,11 +701,15 @@ keyboard_get_input:
 
     xor eax, eax
 
+
     mov esi, input_buffer
+
 
     mov ecx, [input_buffer_write]
 
+
     test ecx, ecx
+
     jz keyboard_get_input_empty
 
 
@@ -561,7 +719,9 @@ keyboard_get_input_loop:
 
     mov [edi + eax], bl
 
+
     inc eax
+
 
     cmp eax, ecx
 
@@ -570,27 +730,45 @@ keyboard_get_input_loop:
 
 keyboard_get_input_empty:
 
-    ; Null terminate destination
+    ; --------------------------------------------------------
+    ; Null terminate destination.
+    ; --------------------------------------------------------
+
     mov byte [edi + eax], 0
 
 
-    ; Save returned length
+    ; --------------------------------------------------------
+    ; Save returned length.
+    ; --------------------------------------------------------
+
     mov edx, eax
 
 
-    ; Clear keyboard buffer
+    ; --------------------------------------------------------
+    ; Clear keyboard buffer.
+    ; --------------------------------------------------------
+
     call buffer_clear
 
 
-    ; Reset buffer position
+    ; --------------------------------------------------------
+    ; Reset buffer position.
+    ; --------------------------------------------------------
+
     mov dword [input_buffer_write], 0
 
 
-    ; Reset current input length
+    ; --------------------------------------------------------
+    ; Reset current input length.
+    ; --------------------------------------------------------
+
     mov dword [input_length], 0
 
 
-    ; Return length
+    ; --------------------------------------------------------
+    ; Return length.
+    ; --------------------------------------------------------
+
     mov eax, edx
 
 
@@ -619,12 +797,12 @@ shift_pressed:
 
 
 ; ============================================================
-; Current VGA cursor position
+; Current input cursor position
 ; ============================================================
 
 cursor_position:
 
-    dd INPUT_START
+    dd 0
 
 
 ; ============================================================
@@ -633,7 +811,7 @@ cursor_position:
 
 input_start:
 
-    dd INPUT_START
+    dd 0
 
 
 ; ============================================================
