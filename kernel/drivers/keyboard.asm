@@ -21,6 +21,7 @@ extern console_get_cursor
 extern console_set_cursor
 extern console_draw_cursor
 extern console_remove_cursor
+extern console_backspace
 
 
 ; ============================================================
@@ -41,8 +42,7 @@ extern console_remove_cursor
 ;   - Maintain command-ready state
 ;   - Manage command-line editing
 ;
-; Display output is handled completely through the
-; Console subsystem.
+; Display output is handled through the Console subsystem.
 ;
 ; Architecture:
 ;
@@ -51,8 +51,6 @@ extern console_remove_cursor
 ;     Console
 ;        ↓
 ;       VGA
-;
-; The keyboard driver does NOT access VGA memory directly.
 ;
 ; ============================================================
 
@@ -194,16 +192,7 @@ keyboard_character_ready:
 
 
     ; --------------------------------------------------------
-    ; Update keyboard cursor from Console cursor.
-    ; --------------------------------------------------------
-
-    call console_get_cursor
-
-    mov [cursor_position], eax
-
-
-    ; --------------------------------------------------------
-    ; Increase input length
+    ; Increase input length.
     ; --------------------------------------------------------
 
     inc dword [input_length]
@@ -270,11 +259,10 @@ keyboard_shift_release:
 ; It only:
 ;
 ;   - removes the visible cursor
-;   - moves to the next console line
+;   - moves to the next line
 ;   - marks the command ready
 ;
 ; The shell retrieves the command later.
-;
 ; ============================================================
 
 keyboard_enter:
@@ -307,15 +295,6 @@ keyboard_enter:
 
 
     ; --------------------------------------------------------
-    ; Update keyboard cursor from Console.
-    ; --------------------------------------------------------
-
-    call console_get_cursor
-
-    mov [cursor_position], eax
-
-
-    ; --------------------------------------------------------
     ; Mark command ready.
     ; --------------------------------------------------------
 
@@ -329,7 +308,7 @@ keyboard_enter:
     ; - reset input length
     ; - print a new prompt
     ;
-    ; Shell performs those operations.
+    ; Shell performs those operations after execution.
     ; --------------------------------------------------------
 
     jmp keyboard_done
@@ -358,53 +337,16 @@ keyboard_backspace:
 
 
     ; --------------------------------------------------------
-    ; Get current Console cursor.
+    ; Console owns backspace behavior.
     ;
-    ; Console cursor points to the position AFTER the
-    ; last entered character.
-    ; --------------------------------------------------------
-
-    call console_get_cursor
-
-    sub eax, 2
-
-
-    ; --------------------------------------------------------
-    ; Move Console cursor backwards.
-    ; --------------------------------------------------------
-
-    call console_set_cursor
-
-
-    ; --------------------------------------------------------
-    ; Erase character using Console.
-    ; --------------------------------------------------------
-
-    mov al, ' '
-
-    call console_putc
-
-
-    ; --------------------------------------------------------
-    ; console_putc advanced the cursor again.
+    ; This:
     ;
-    ; Move it back to the deleted character position.
+    ;   - moves cursor backward
+    ;   - erases previous character
+    ;   - keeps cursor at erased position
     ; --------------------------------------------------------
 
-    call console_get_cursor
-
-    sub eax, 2
-
-    call console_set_cursor
-
-
-    ; --------------------------------------------------------
-    ; Update keyboard cursor.
-    ; --------------------------------------------------------
-
-    call console_get_cursor
-
-    mov [cursor_position], eax
+    call console_backspace
 
 
     ; --------------------------------------------------------
@@ -565,8 +507,7 @@ buffer_clear_done:
 ;
 ;   > _
 ;
-; The Console owns all display operations.
-;
+; The Console owns the output position.
 ; ============================================================
 
 keyboard_print_prompt:
@@ -575,18 +516,16 @@ keyboard_print_prompt:
 
 
     ; --------------------------------------------------------
-    ; Get current Console cursor.
+    ; Save beginning of user input.
     ; --------------------------------------------------------
 
     call console_get_cursor
-
-    mov [cursor_position], eax
 
     mov [input_start], eax
 
 
     ; --------------------------------------------------------
-    ; Print '>'
+    ; Print '>'.
     ; --------------------------------------------------------
 
     mov al, '>'
@@ -595,7 +534,7 @@ keyboard_print_prompt:
 
 
     ; --------------------------------------------------------
-    ; Print space
+    ; Print space.
     ; --------------------------------------------------------
 
     mov al, ' '
@@ -608,8 +547,6 @@ keyboard_print_prompt:
     ; --------------------------------------------------------
 
     call console_get_cursor
-
-    mov [cursor_position], eax
 
     mov [input_start], eax
 
@@ -639,8 +576,6 @@ keyboard_get_cursor:
 
     call console_get_cursor
 
-    mov [cursor_position], eax
-
     ret
 
 
@@ -651,29 +586,13 @@ keyboard_get_cursor:
 ;
 ;   EAX = VGA cursor address
 ;
-; Used by shell/kernel to synchronize the keyboard
-; input position with the Console.
+; Synchronizes the Console cursor.
 ;
 ; ============================================================
 
 keyboard_set_cursor:
 
-    push eax
-
-
-    mov [cursor_position], eax
-
-    mov [input_start], eax
-
-
-    ; --------------------------------------------------------
-    ; Synchronize Console cursor.
-    ; --------------------------------------------------------
-
     call console_set_cursor
-
-
-    pop eax
 
     ret
 
@@ -688,7 +607,6 @@ keyboard_set_cursor:
 ;   EAX = number of characters copied
 ;
 ; The keyboard buffer is cleared after copying.
-;
 ; ============================================================
 
 keyboard_get_input:
@@ -797,15 +715,6 @@ shift_pressed:
 
 
 ; ============================================================
-; Current input cursor position
-; ============================================================
-
-cursor_position:
-
-    dd 0
-
-
-; ============================================================
 ; Start of current input
 ; ============================================================
 
@@ -911,6 +820,9 @@ shift_table:
 
     db 8
     db 9
+
+    db 13
+    db 0
 
     db 'Q','W','E','R','T','Y','U','I','O','P'
 
