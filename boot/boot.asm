@@ -45,10 +45,13 @@ start:
     ; Sector 2
     ;
     ; Kernel is loaded at physical address 0x1000
+    ;
+    ; Load 16 sectors:
+    ; 16 × 512 = 8192 bytes
     ; --------------------------------------------------------
 
     mov ah, 0x02        ; BIOS disk read function
-    mov al, 7           ; Read 7 sectors
+    mov al, 16          ; Read 16 sectors
     mov ch, 0           ; Cylinder 0
     mov cl, 2           ; Start at sector 2
     mov dh, 0           ; Head 0
