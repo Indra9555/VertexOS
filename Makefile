@@ -20,6 +20,9 @@ IDT_OBJ = build/idt.o
 PIC_SRC = kernel/interrupts/pic.asm
 PIC_OBJ = build/pic.o
 
+EXCEPTIONS_SRC = kernel/interrupts/exceptions.asm
+EXCEPTIONS_OBJ = build/exceptions.o
+
 KEYBOARD_SRC = kernel/drivers/keyboard.asm
 KEYBOARD_OBJ = build/keyboard.o
 
@@ -100,6 +103,15 @@ $(PIC_OBJ): $(PIC_SRC)
 
 
 # ============================================================
+# CPU EXCEPTIONS
+# ============================================================
+
+$(EXCEPTIONS_OBJ): $(EXCEPTIONS_SRC)
+	@mkdir -p build
+	$(ASM) -f elf32 $(EXCEPTIONS_SRC) -o $(EXCEPTIONS_OBJ)
+
+
+# ============================================================
 # KEYBOARD DRIVER
 # ============================================================
 
@@ -134,6 +146,7 @@ $(KERNEL_ELF): \
 	$(KERNEL_OBJ) \
 	$(IDT_OBJ) \
 	$(PIC_OBJ) \
+	$(EXCEPTIONS_OBJ) \
 	$(KEYBOARD_OBJ) \
 	$(SHELL_OBJ) \
 	$(CONSOLE_OBJ) \
@@ -144,6 +157,7 @@ $(KERNEL_ELF): \
 		$(KERNEL_OBJ) \
 		$(IDT_OBJ) \
 		$(PIC_OBJ) \
+		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \
 		$(CONSOLE_OBJ)
@@ -208,6 +222,7 @@ clean:
 		$(KERNEL_OBJ) \
 		$(IDT_OBJ) \
 		$(PIC_OBJ) \
+		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \
 		$(CONSOLE_OBJ) \
