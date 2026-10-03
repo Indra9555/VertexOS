@@ -13,7 +13,6 @@ extern console_init
 extern console_print
 extern console_newline
 extern console_get_cursor
-extern console_set_cursor
 
 
 ; Interrupt subsystem
@@ -41,8 +40,6 @@ extern shell_update
 ;   - Initialize interrupts
 ;   - Initialize shell
 ;   - Start the main kernel loop
-;
-; VGA output is handled through the Console subsystem.
 ;
 ; Output architecture:
 ;
@@ -122,11 +119,6 @@ kernel_start:
     ;   0 = IRQ1 enabled
     ;   1 = IRQ1 masked
     ;
-    ; Therefore:
-    ;
-    ;   AND 0xFD
-    ;
-    ; clears bit 1.
     ; ========================================================
 
     in al, 0x21
@@ -152,8 +144,9 @@ kernel_start:
     ;
     ; because the kernel printed three lines.
     ;
-    ; The keyboard driver still owns the temporary visible
-    ; input cursor, so we synchronize it with the Console.
+    ; keyboard_print_prompt uses the Console subsystem to
+    ; print "> " and therefore advances the Console cursor
+    ; automatically.
     ; ========================================================
 
     call shell_print_initial_prompt
@@ -193,68 +186,36 @@ kernel_loop:
 ;        ↓
 ;   keyboard_print_prompt
 ;        ↓
-;   Console cursor updated
+;   Console cursor automatically advances
 ;
-; keyboard_print_prompt currently writes:
-;
-;   > _
-;
-; directly to VGA.
-;
-; This is temporary and will be moved into the Console-based
-; architecture during the Keyboard → Console integration.
+; keyboard_print_prompt is now Console-based.
+; It does NOT directly manipulate VGA memory.
 ; ============================================================
 
 shell_print_initial_prompt:
 
     ; --------------------------------------------------------
     ; Get current Console cursor.
-    ;
-    ; Expected:
-    ;
-    ;   VGA_MEMORY + (3 * 160)
-    ;
     ; --------------------------------------------------------
 
     call console_get_cursor
 
 
     ; --------------------------------------------------------
-    ; Synchronize keyboard input position.
-    ;
-    ; keyboard_set_cursor also updates input_start.
+    ; Synchronize keyboard input position with Console.
     ; --------------------------------------------------------
 
     call keyboard_set_cursor
 
 
     ; --------------------------------------------------------
-    ; Print:
+    ; Print the prompt.
     ;
-    ;   > _
-    ;
-    ; keyboard_print_prompt currently handles the visible
-    ; keyboard cursor.
+    ; keyboard_print_prompt internally uses console_putc(),
+    ; so the Console cursor advances automatically.
     ; --------------------------------------------------------
 
     call keyboard_print_prompt
-
-
-    ; --------------------------------------------------------
-    ; keyboard_print_prompt advances its internal cursor by:
-    ;
-    ;   '>' = 2 bytes
-    ;   ' ' = 2 bytes
-    ;
-    ; Therefore the Console cursor must advance by 4 bytes.
-    ; --------------------------------------------------------
-
-    call console_get_cursor
-
-    add eax, 4
-
-    call console_set_cursor
-
 
     ret
 

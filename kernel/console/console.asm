@@ -17,7 +17,7 @@ global console_backspace
 ; ============================================================
 ; VertexOS Console Subsystem
 ;
-; VGA text-mode console driver
+; VGA text mode console
 ;
 ; VGA memory:
 ;   0xB8000
@@ -29,26 +29,15 @@ global console_backspace
 ;   byte 0 = character
 ;   byte 1 = attribute
 ;
-; Responsibilities:
+; The Console subsystem owns:
 ;
-;   - Console initialization
-;   - Screen clearing
-;   - Character output
-;   - String output
-;   - Newline handling
-;   - Automatic scrolling
-;   - Cursor management
-;   - Cursor rendering
-;
-; Architecture:
-;
-;   Higher-level components
-;           ↓
-;        Console API
-;           ↓
-;         VGA RAM
-;
-; The Console subsystem is the owner of VGA memory.
+;   - VGA memory
+;   - console cursor position
+;   - character output
+;   - newline handling
+;   - scrolling
+;   - cursor rendering
+;   - backspace
 ;
 ; ============================================================
 
@@ -65,6 +54,8 @@ SCREEN_HEIGHT       equ 25
 VGA_ROW_SIZE        equ SCREEN_WIDTH * 2
 VGA_SCREEN_SIZE     equ SCREEN_WIDTH * SCREEN_HEIGHT * 2
 
+VGA_SCREEN_END      equ VGA_MEMORY + VGA_SCREEN_SIZE
+
 DEFAULT_ATTRIBUTE   equ 0x0F
 CLEAR_ATTRIBUTE     equ 0x07
 
@@ -72,13 +63,7 @@ CLEAR_ATTRIBUTE     equ 0x07
 ; ============================================================
 ; console_init
 ;
-; Initialize the console subsystem.
-;
-; Actions:
-;
-;   1. Clear VGA screen
-;   2. Reset console cursor
-;
+; Initialize the console.
 ; ============================================================
 
 console_init:
@@ -91,12 +76,8 @@ console_init:
 ; ============================================================
 ; console_clear
 ;
-; Clear the complete VGA text screen.
-;
-; After clearing:
-;
-;   cursor = top-left
-;
+; Clear the complete VGA screen.
+; Cursor returns to top-left.
 ; ============================================================
 
 console_clear:
@@ -109,9 +90,7 @@ console_clear:
 
     mov ecx, SCREEN_WIDTH * SCREEN_HEIGHT
 
-    ; Space character + clear attribute
     mov ax, 0x0720
-
 
 console_clear_loop:
 
@@ -121,13 +100,7 @@ console_clear_loop:
 
     loop console_clear_loop
 
-
-    ; --------------------------------------------------------
-    ; Reset cursor
-    ; --------------------------------------------------------
-
     mov dword [console_cursor], VGA_MEMORY
-
 
     pop edi
     pop ecx
@@ -140,80 +113,60 @@ console_clear_loop:
 ; console_putc
 ;
 ; Input:
-;
 ;   AL = character
 ;
 ; Handles:
+;   10 = newline
 ;
-;   '\n' = newline
-;   normal character = write to VGA
-;
+; Normal characters are written at the current cursor.
 ; ============================================================
 
 console_putc:
 
-    ; --------------------------------------------------------
-    ; Newline?
-    ; --------------------------------------------------------
-
     cmp al, 10
-
     je console_putc_newline
-
 
     push eax
     push edi
 
-
-    ; --------------------------------------------------------
-    ; Get current cursor
-    ; --------------------------------------------------------
-
     mov edi, [console_cursor]
 
+    ; --------------------------------------------------------
+    ; Safety check.
+    ;
+    ; Never write outside VGA memory.
+    ; --------------------------------------------------------
+
+    cmp edi, VGA_SCREEN_END - 2
+    ja console_putc_done
 
     ; --------------------------------------------------------
-    ; Write character
+    ; Write character.
     ; --------------------------------------------------------
 
     mov [edi], al
-
     mov byte [edi + 1], DEFAULT_ATTRIBUTE
 
-
     ; --------------------------------------------------------
-    ; Advance cursor
+    ; Advance cursor.
     ; --------------------------------------------------------
 
     add edi, 2
 
     mov [console_cursor], edi
 
-
     ; --------------------------------------------------------
-    ; Check whether cursor moved past screen.
+    ; If cursor reached the end of the screen,
+    ; scroll and place it on the bottom row.
     ; --------------------------------------------------------
 
-    mov eax, edi
-
-    sub eax, VGA_MEMORY
-
-    cmp eax, VGA_SCREEN_SIZE
-
+    cmp edi, VGA_SCREEN_END
     jb console_putc_done
-
-
-    ; --------------------------------------------------------
-    ; Screen reached.
-    ;
-    ; Scroll one row and keep cursor on bottom row.
-    ; --------------------------------------------------------
 
     call console_scroll
 
     mov dword [console_cursor], \
         VGA_MEMORY + ((SCREEN_HEIGHT - 1) * VGA_ROW_SIZE)
-
 
 console_putc_done:
 
@@ -234,17 +187,12 @@ console_putc_newline:
 ; console_print
 ;
 ; Input:
-;
-;   ESI = pointer to null-terminated string
-;
-; Prints the complete string.
-;
+;   ESI = null-terminated string
 ; ============================================================
 
 console_print:
 
     push eax
-
 
 console_print_loop:
 
@@ -269,13 +217,11 @@ console_print_done:
 ; ============================================================
 ; console_newline
 ;
-; Move cursor to beginning of next row.
+; Move cursor to the beginning of the next row.
 ;
-; If cursor is already on the last row:
-;
-;   - Scroll screen
-;   - Keep cursor on last row
-;
+; If the cursor is already on the last row:
+;   scroll upward
+;   keep cursor on bottom row
 ; ============================================================
 
 console_newline:
@@ -285,18 +231,23 @@ console_newline:
     push edx
     push edi
 
-
-    ; --------------------------------------------------------
-    ; Get current cursor offset
-    ; --------------------------------------------------------
-
     mov edi, [console_cursor]
+
+    ; --------------------------------------------------------
+    ; Keep cursor inside valid screen range.
+    ; --------------------------------------------------------
+
+    cmp edi, VGA_SCREEN_END
+    jb console_newline_cursor_valid
+
+    mov edi, VGA_SCREEN_END - 2
+
+console_newline_cursor_valid:
 
     sub edi, VGA_MEMORY
 
-
     ; --------------------------------------------------------
-    ; Convert byte offset -> row number
+    ; Convert byte offset to row.
     ; --------------------------------------------------------
 
     mov eax, edi
@@ -307,46 +258,30 @@ console_newline:
 
     div ebx
 
-
     ; --------------------------------------------------------
-    ; Move to next row
+    ; Next row.
     ; --------------------------------------------------------
 
     inc eax
 
-
     ; --------------------------------------------------------
-    ; Check if next row is visible
+    ; Need to scroll?
     ; --------------------------------------------------------
 
     cmp eax, SCREEN_HEIGHT
-
     jb console_newline_no_scroll
-
-
-    ; --------------------------------------------------------
-    ; Screen is full.
-    ;
-    ; Scroll screen upward.
-    ; --------------------------------------------------------
 
     call console_scroll
 
     mov eax, SCREEN_HEIGHT - 1
 
-
 console_newline_no_scroll:
-
-    ; --------------------------------------------------------
-    ; Convert row -> VGA address
-    ; --------------------------------------------------------
 
     imul eax, VGA_ROW_SIZE
 
     add eax, VGA_MEMORY
 
     mov [console_cursor], eax
-
 
     pop edi
     pop edx
@@ -359,24 +294,7 @@ console_newline_no_scroll:
 ; ============================================================
 ; console_scroll
 ;
-; Scroll the VGA screen upward by one row.
-;
-; Before:
-;
-;   Row 0
-;   Row 1
-;   Row 2
-;   ...
-;   Row 24
-;
-; After:
-;
-;   Row 1 -> Row 0
-;   Row 2 -> Row 1
-;   ...
-;   Row 24 -> Row 23
-;   Blank  -> Row 24
-;
+; Scroll screen upward by one row.
 ; ============================================================
 
 console_scroll:
@@ -387,40 +305,24 @@ console_scroll:
     push edi
     pushfd
 
-
-    ; --------------------------------------------------------
-    ; Copy forward.
-    ; --------------------------------------------------------
-
     cld
 
-
     ; --------------------------------------------------------
-    ; Source = Row 1
+    ; Source = row 1
+    ; Destination = row 0
     ; --------------------------------------------------------
 
     mov esi, VGA_MEMORY + VGA_ROW_SIZE
 
-
-    ; --------------------------------------------------------
-    ; Destination = Row 0
-    ; --------------------------------------------------------
-
     mov edi, VGA_MEMORY
 
-
     ; --------------------------------------------------------
-    ; Copy:
-    ;
-    ; 24 rows × 80 cells
-    ;
-    ; One VGA cell = 16 bits.
-    ; --------------------------------------------------------
+    ; Copy 24 rows × 80 cells.
+    ; ========================================================
 
     mov ecx, (SCREEN_HEIGHT - 1) * SCREEN_WIDTH
 
     rep movsw
-
 
     ; --------------------------------------------------------
     ; Clear bottom row.
@@ -432,7 +334,6 @@ console_scroll:
 
     mov ax, 0x0720
 
-
 console_scroll_clear_bottom:
 
     mov [edi], ax
@@ -440,7 +341,6 @@ console_scroll_clear_bottom:
     add edi, 2
 
     loop console_scroll_clear_bottom
-
 
     popfd
     pop edi
@@ -455,9 +355,7 @@ console_scroll_clear_bottom:
 ; console_get_cursor
 ;
 ; Returns:
-;
-;   EAX = current VGA cursor address
-;
+;   EAX = current cursor address
 ; ============================================================
 
 console_get_cursor:
@@ -471,16 +369,43 @@ console_get_cursor:
 ; console_set_cursor
 ;
 ; Input:
+;   EAX = desired VGA cursor address
 ;
-;   EAX = VGA cursor address
-;
-; Sets the console output position.
-;
+; Only accepts positions inside the VGA screen.
 ; ============================================================
 
 console_set_cursor:
 
+    ; --------------------------------------------------------
+    ; Reject address before VGA memory.
+    ; --------------------------------------------------------
+
+    cmp eax, VGA_MEMORY
+    jb console_set_cursor_done
+
+    ; --------------------------------------------------------
+    ; Reject address outside the screen.
+    ;
+    ; VGA_SCREEN_END itself is not a valid cell.
+    ; --------------------------------------------------------
+
+    cmp eax, VGA_SCREEN_END
+    jae console_set_cursor_done
+
+    ; --------------------------------------------------------
+    ; Cursor must point to a VGA cell.
+    ; Force alignment to an even byte offset.
+    ; --------------------------------------------------------
+
+    sub eax, VGA_MEMORY
+
+    and eax, 0xFFFFFFFE
+
+    add eax, VGA_MEMORY
+
     mov [console_cursor], eax
+
+console_set_cursor_done:
 
     ret
 
@@ -488,18 +413,12 @@ console_set_cursor:
 ; ============================================================
 ; console_draw_cursor
 ;
-; Draw the visible input cursor.
+; Draw visible input cursor at current console position.
 ;
-; Current representation:
-;
+; Cursor representation:
 ;   _
 ;
-; The cursor is drawn at the current console cursor position.
-;
-; IMPORTANT:
-;
-; Only the Console subsystem accesses VGA memory.
-;
+; Does not move the console cursor.
 ; ============================================================
 
 console_draw_cursor:
@@ -507,22 +426,21 @@ console_draw_cursor:
     push eax
     push edi
 
-
-    ; --------------------------------------------------------
-    ; Get current console cursor.
-    ; --------------------------------------------------------
-
     mov edi, [console_cursor]
 
+    ; --------------------------------------------------------
+    ; Never draw outside VGA memory.
+    ;
+    ; The last valid cell starts at VGA_SCREEN_END - 2.
+    ; --------------------------------------------------------
 
-    ; --------------------------------------------------------
-    ; Draw visible cursor.
-    ; --------------------------------------------------------
+    cmp edi, VGA_SCREEN_END - 2
+    ja console_draw_cursor_done
 
     mov byte [edi], '_'
-
     mov byte [edi + 1], DEFAULT_ATTRIBUTE
 
+console_draw_cursor_done:
 
     pop edi
     pop eax
@@ -533,12 +451,9 @@ console_draw_cursor:
 ; ============================================================
 ; console_remove_cursor
 ;
-; Remove the visible input cursor.
+; Remove visible input cursor.
 ;
-; Replaces "_" with a blank space.
-;
-; The console cursor itself does NOT move.
-;
+; Does not move the console cursor.
 ; ============================================================
 
 console_remove_cursor:
@@ -546,22 +461,19 @@ console_remove_cursor:
     push eax
     push edi
 
-
-    ; --------------------------------------------------------
-    ; Get current console cursor.
-    ; --------------------------------------------------------
-
     mov edi, [console_cursor]
 
+    ; --------------------------------------------------------
+    ; Never access outside VGA memory.
+    ; --------------------------------------------------------
 
-    ; --------------------------------------------------------
-    ; Replace cursor with blank.
-    ; --------------------------------------------------------
+    cmp edi, VGA_SCREEN_END - 2
+    ja console_remove_cursor_done
 
     mov byte [edi], ' '
-
     mov byte [edi + 1], DEFAULT_ATTRIBUTE
 
+console_remove_cursor_done:
 
     pop edi
     pop eax
@@ -572,15 +484,11 @@ console_remove_cursor:
 ; ============================================================
 ; console_backspace
 ;
-; Erases the character immediately before the current cursor.
+; Erase the character immediately before the cursor.
 ;
-; The Console owns:
+; After the operation:
 ;
-;   - cursor movement
-;   - VGA memory access
-;   - character erasing
-;
-; After the operation, the cursor remains at the erased cell.
+;   cursor = erased character position
 ;
 ; ============================================================
 
@@ -589,25 +497,27 @@ console_backspace:
     push eax
     push edi
 
-    ; --------------------------------------------------------
-    ; Get current cursor.
-    ; --------------------------------------------------------
-
     mov edi, [console_cursor]
 
     ; --------------------------------------------------------
-    ; Never move before VGA memory.
+    ; Cannot move before VGA memory.
     ; --------------------------------------------------------
 
     cmp edi, VGA_MEMORY
-
     jbe console_backspace_done
 
     ; --------------------------------------------------------
-    ; Move to previous character cell.
+    ; Move to previous cell.
     ; --------------------------------------------------------
 
     sub edi, 2
+
+    ; --------------------------------------------------------
+    ; Safety check.
+    ; --------------------------------------------------------
+
+    cmp edi, VGA_MEMORY
+    jb console_backspace_done
 
     ; --------------------------------------------------------
     ; Erase character.
@@ -617,7 +527,7 @@ console_backspace:
     mov byte [edi + 1], DEFAULT_ATTRIBUTE
 
     ; --------------------------------------------------------
-    ; Keep cursor at erased position.
+    ; Cursor now points to erased cell.
     ; --------------------------------------------------------
 
     mov [console_cursor], edi
@@ -629,18 +539,17 @@ console_backspace_done:
 
     ret
 
+
 ; ============================================================
 ; DATA
 ; ============================================================
 
 section .data
 
-
 ; ============================================================
 ; Console cursor
 ;
-; Stores the VGA address of the next output position.
-;
+; Address of the next output position.
 ; ============================================================
 
 console_cursor:
