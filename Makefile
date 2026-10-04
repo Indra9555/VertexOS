@@ -56,7 +56,6 @@ OS_IMAGE = build/VertexOS.img
 
 .PHONY: all boot kernel image run clean
 
-
 all: image
 
 
@@ -66,9 +65,8 @@ all: image
 
 boot: $(BOOT_BIN)
 
-
 $(BOOT_BIN): $(BOOT_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f bin $(BOOT_SRC) -o $(BOOT_BIN)
 
 
@@ -78,9 +76,8 @@ $(BOOT_BIN): $(BOOT_SRC)
 
 kernel: $(KERNEL_BIN)
 
-
 $(KERNEL_OBJ): $(KERNEL_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f elf32 $(KERNEL_SRC) -o $(KERNEL_OBJ)
 
 
@@ -89,7 +86,7 @@ $(KERNEL_OBJ): $(KERNEL_SRC)
 # ============================================================
 
 $(IDT_OBJ): $(IDT_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f elf32 $(IDT_SRC) -o $(IDT_OBJ)
 
 
@@ -98,7 +95,7 @@ $(IDT_OBJ): $(IDT_SRC)
 # ============================================================
 
 $(PIC_OBJ): $(PIC_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f elf32 $(PIC_SRC) -o $(PIC_OBJ)
 
 
@@ -107,7 +104,7 @@ $(PIC_OBJ): $(PIC_SRC)
 # ============================================================
 
 $(EXCEPTIONS_OBJ): $(EXCEPTIONS_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f elf32 $(EXCEPTIONS_SRC) -o $(EXCEPTIONS_OBJ)
 
 
@@ -116,7 +113,7 @@ $(EXCEPTIONS_OBJ): $(EXCEPTIONS_SRC)
 # ============================================================
 
 $(KEYBOARD_OBJ): $(KEYBOARD_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f elf32 $(KEYBOARD_SRC) -o $(KEYBOARD_OBJ)
 
 
@@ -125,7 +122,7 @@ $(KEYBOARD_OBJ): $(KEYBOARD_SRC)
 # ============================================================
 
 $(SHELL_OBJ): $(SHELL_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f elf32 $(SHELL_SRC) -o $(SHELL_OBJ)
 
 
@@ -134,7 +131,7 @@ $(SHELL_OBJ): $(SHELL_SRC)
 # ============================================================
 
 $(CONSOLE_OBJ): $(CONSOLE_SRC)
-	@mkdir -p build
+	mkdir -p build
 	$(ASM) -f elf32 $(CONSOLE_SRC) -o $(CONSOLE_OBJ)
 
 
@@ -168,7 +165,6 @@ $(KERNEL_ELF): \
 # ============================================================
 
 $(KERNEL_BIN): $(KERNEL_ELF)
-
 	$(OBJCOPY) -O binary $(KERNEL_ELF) $(KERNEL_BIN)
 
 
@@ -178,29 +174,26 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 #
 # Bootloader loads:
 #
-#   16 sectors × 512 bytes = 8192 bytes
+#	32 sectors × 512 bytes = 16384 bytes
 #
 # Kernel starts immediately after boot sector.
 #
-# Therefore image gets enough space for:
+# Therefore image contains:
 #
-#   512 boot sector
-#   8192 kernel area
+#	512 byte boot sector
+#	16384 byte kernel area
 #
-# Total = 8704 bytes
+# Total required space = 16896 bytes
 #
-# We use 16 KB so the OS has room to grow.
+# We use 20 KB so the OS has additional room to grow.
 #
 # ============================================================
 
 image: $(OS_IMAGE)
 
-
 $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_BIN)
-
 	cat $(BOOT_BIN) $(KERNEL_BIN) > $(OS_IMAGE)
-
-	truncate -s 16384 $(OS_IMAGE)
+	truncate -s 20480 $(OS_IMAGE)
 
 
 # ============================================================
@@ -208,7 +201,6 @@ $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_BIN)
 # ============================================================
 
 run: image
-
 	$(QEMU) -drive format=raw,file=$(OS_IMAGE)
 
 
@@ -217,7 +209,6 @@ run: image
 # ============================================================
 
 clean:
-
 	rm -f $(BOOT_BIN) \
 		$(KERNEL_OBJ) \
 		$(IDT_OBJ) \
