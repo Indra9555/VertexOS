@@ -330,6 +330,23 @@ keyboard_backspace:
 
 
     ; --------------------------------------------------------
+    ; Protect the prompt boundary.
+    ;
+    ; input_start stores the console cursor position at the
+    ; beginning of the current user input.
+    ;
+    ; If the cursor is already at input_start, there is
+    ; nothing belonging to the user that can be deleted.
+    ; --------------------------------------------------------
+
+    call console_get_cursor
+
+    cmp eax, [input_start]
+
+    je keyboard_done
+
+
+    ; --------------------------------------------------------
     ; Remove visible cursor.
     ; --------------------------------------------------------
 
@@ -543,6 +560,7 @@ keyboard_print_prompt:
     pop eax
 
     ret
+
 
 ; ============================================================
 ; GET CURSOR
@@ -761,6 +779,7 @@ keyboard_table:
     db '[',']'
 
     db 13
+
     db 0
 
     db 'a','s','d','f','g','h','j','k','l'
@@ -771,23 +790,23 @@ keyboard_table:
 
     db 0
 
-    db '\'
-
-    db 'z','x','c','v','b','n','m'
+    db '\','z','x','c','v','b','n','m'
 
     db ',','.','/'
 
     db 0
-    db 0
+
+    db '*'
+
     db 0
 
     db ' '
 
-    times 58 db 0
+    times 0x3A - ($ - keyboard_table) db 0
 
 
 ; ============================================================
-; SHIFTED KEYBOARD TABLE
+; SHIFTED US KEYBOARD SET 1
 ; ============================================================
 
 shift_table:
@@ -802,14 +821,12 @@ shift_table:
     db 8
     db 9
 
-    db 13
-    db 0
-
     db 'Q','W','E','R','T','Y','U','I','O','P'
 
     db '{','}'
 
     db 13
+
     db 0
 
     db 'A','S','D','F','G','H','J','K','L'
@@ -820,16 +837,16 @@ shift_table:
 
     db 0
 
-    db '|'
-
-    db 'Z','X','C','V','B','N','M'
+    db '|','Z','X','C','V','B','N','M'
 
     db '<','>','?'
 
     db 0
-    db 0
+
+    db '*'
+
     db 0
 
     db ' '
 
-    times 58 db 0
+    times 0x3A - ($ - shift_table) db 0
