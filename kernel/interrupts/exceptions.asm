@@ -43,21 +43,17 @@ extern console_newline
 extern console_putc
 
 
-; ------------------------------------------------------------
-; CPU exception stubs
+; ============================================================
+; CPU EXCEPTION STUBS
 ;
-; Exceptions without an automatic CPU error code push a
-; dummy error code so that every exception has the same
-; stack layout.
-;
-; Stack entering exception_common_handler:
+; Common stack layout:
 ;
 ;   [esp + 0]  = exception vector
 ;   [esp + 4]  = error code
 ;   [esp + 8]  = EIP
 ;   [esp + 12] = CS
 ;   [esp + 16] = EFLAGS
-; ------------------------------------------------------------
+; ============================================================
 
 exception_0:
     push dword 0
@@ -99,20 +95,15 @@ exception_7:
     push dword 7
     jmp exception_common_handler
 
-
-; Double Fault automatically pushes an error code.
 exception_8:
     push dword 8
     jmp exception_common_handler
-
 
 exception_9:
     push dword 0
     push dword 9
     jmp exception_common_handler
 
-
-; Exceptions 10-14 automatically push an error code.
 exception_10:
     push dword 10
     jmp exception_common_handler
@@ -133,7 +124,6 @@ exception_14:
     push dword 14
     jmp exception_common_handler
 
-
 exception_15:
     push dword 0
     push dword 15
@@ -144,12 +134,9 @@ exception_16:
     push dword 16
     jmp exception_common_handler
 
-
-; Alignment Check automatically pushes an error code.
 exception_17:
     push dword 17
     jmp exception_common_handler
-
 
 exception_18:
     push dword 0
@@ -223,29 +210,19 @@ exception_31:
 
 
 ; ============================================================
-; Common exception handler
+; COMMON EXCEPTION HANDLER
 ; ============================================================
 
 exception_common_handler:
+
     cli
 
-    ; Preserve all general-purpose registers.
     pushad
 
-    ; --------------------------------------------------------
-    ; Save exception vector in EAX.
-    ;
-    ; pushad uses 32 bytes:
-    ;
-    ; [esp + 32] = exception vector
-    ; [esp + 36] = error code
-    ; --------------------------------------------------------
 
-    mov eax, [esp + 32]
-
-    ; --------------------------------------------------------
-    ; Clear screen and display exception header.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Exception header
+    ; ========================================================
 
     call console_clear
 
@@ -258,9 +235,11 @@ exception_common_handler:
     call console_print
 
 
-    ; --------------------------------------------------------
-    ; Find exception name.
-    ; --------------------------------------------------------
+    ; ========================================================
+    ; Find exception name
+    ; ========================================================
+
+    mov eax, [esp + 32]
 
     cmp eax, 0
     je .exception_0
@@ -495,37 +474,93 @@ exception_common_handler:
 
 
 .print_name:
+
     call console_print
 
     call console_newline
 
+
+    ; ========================================================
+    ; Vector
+    ; ========================================================
+
     mov esi, vector_label
     call console_print
 
-    ; Vector is still available at [esp + 32].
     mov eax, [esp + 32]
     call print_hex32
 
     call console_newline
 
+
+    ; ========================================================
+    ; Error Code
+    ; ========================================================
+
     mov esi, error_label
     call console_print
 
-    ; Error code is at [esp + 36].
     mov eax, [esp + 36]
     call print_hex32
 
     call console_newline
 
+
+    ; ========================================================
+    ; EIP
+    ;
+    ; [esp + 40] = CPU-saved EIP
+    ; ========================================================
+
+    mov esi, eip_label
+    call console_print
+
+    mov eax, [esp + 40]
+    call print_hex32
+
+    call console_newline
+
+
+    ; ========================================================
+    ; CS
+    ;
+    ; [esp + 44] = CPU-saved CS
+    ; ========================================================
+
+    mov esi, cs_label
+    call console_print
+
+    mov eax, [esp + 44]
+    call print_hex32
+
+    call console_newline
+
+
+    ; ========================================================
+    ; EFLAGS
+    ;
+    ; [esp + 48] = CPU-saved EFLAGS
+    ; ========================================================
+
+    mov esi, eflags_label
+    call console_print
+
+    mov eax, [esp + 48]
+    call print_hex32
+
+    call console_newline
+
+
+    ; ========================================================
+    ; Halt message
+    ; ========================================================
+
     mov esi, halted_message
     call console_print
 
 
-; ------------------------------------------------------------
-; Halt after displaying the exception.
-; ------------------------------------------------------------
-
 .exception_halt:
+
     hlt
     jmp .exception_halt
 
@@ -537,11 +572,7 @@ exception_common_handler:
 ;   EAX = 32-bit value
 ;
 ; Output:
-;   Prints:
-;       0xXXXXXXXX
-;
-; Clobbers:
-;   EAX, EBX, ECX, EDX
+;   0xXXXXXXXX
 ; ============================================================
 
 print_hex32:
@@ -572,9 +603,12 @@ print_hex32:
     jmp .print_digit
 
 .hex_digit:
+
     add al, '0'
 
+
 .print_digit:
+
     call console_putc
 
     loop .hex_loop
@@ -588,14 +622,13 @@ print_hex32:
 
 
 ; ============================================================
-; Exception messages
+; DATA
 ; ============================================================
 
 section .data
 
 exception_header:
     db "================================", 0
-    db 0
 
 exception_label:
     db "CPU Exception: ", 0
@@ -605,6 +638,15 @@ vector_label:
 
 error_label:
     db "Error Code: ", 0
+
+eip_label:
+    db "EIP: ", 0
+
+cs_label:
+    db "CS: ", 0
+
+eflags_label:
+    db "EFLAGS: ", 0
 
 halted_message:
     db "System halted.", 0
