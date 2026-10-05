@@ -59,9 +59,9 @@ extern console_backspace
 ; CONSTANTS
 ; ============================================================
 
-INPUT_BUFFER_SIZE   equ 128
-
 MAX_INPUT_LENGTH    equ 76
+
+INPUT_BUFFER_SIZE   equ MAX_INPUT_LENGTH + 1
 
 
 ; ============================================================
@@ -334,9 +334,6 @@ keyboard_backspace:
     ;
     ; input_start stores the console cursor position at the
     ; beginning of the current user input.
-    ;
-    ; If the cursor is already at input_start, there is
-    ; nothing belonging to the user that can be deleted.
     ; --------------------------------------------------------
 
     call console_get_cursor
@@ -425,7 +422,14 @@ buffer_write:
     mov ebx, [input_buffer_write]
 
 
-    cmp ebx, INPUT_BUFFER_SIZE - 1
+    ; --------------------------------------------------------
+    ; The input buffer contains:
+    ;
+    ;   MAX_INPUT_LENGTH characters
+    ;   + one byte reserved for '\0'
+    ; --------------------------------------------------------
+
+    cmp ebx, MAX_INPUT_LENGTH
 
     jae buffer_write_done
 
@@ -436,6 +440,13 @@ buffer_write:
     inc ebx
 
     mov [input_buffer_write], ebx
+
+
+    ; --------------------------------------------------------
+    ; Keep the buffer null terminated.
+    ; --------------------------------------------------------
+
+    mov byte [input_buffer + ebx], 0
 
 
 buffer_write_done:
