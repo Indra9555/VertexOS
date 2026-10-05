@@ -4,6 +4,7 @@ section .text
 
 global idt_init
 
+extern timer_handler
 extern keyboard_handler
 
 extern exception_0
@@ -90,14 +91,6 @@ section .text
 ;
 ; %1 = interrupt vector
 ; %2 = handler address
-;
-; Each IDT entry contains:
-;
-; offset_low
-; selector
-; zero
-; flags
-; offset_high
 ; ============================================================
 
 %macro SET_IDT_ENTRY 2
@@ -125,6 +118,7 @@ section .text
 ; Initializes the IDT and installs:
 ;
 ; CPU exceptions → vectors 0x00–0x1F
+; PIT IRQ0      → vector 0x20
 ; Keyboard IRQ1 → vector 0x21
 ; ============================================================
 
@@ -179,6 +173,15 @@ idt_init:
     SET_IDT_ENTRY 29, exception_29
     SET_IDT_ENTRY 30, exception_30
     SET_IDT_ENTRY 31, exception_31
+
+
+    ; ========================================================
+    ; PIT TIMER IRQ
+    ;
+    ; PIC remapping gives IRQ0 vector 0x20.
+    ; ========================================================
+
+    SET_IDT_ENTRY 0x20, timer_handler
 
 
     ; ========================================================

@@ -21,6 +21,8 @@ extern console_newline
 extern console_get_cursor
 extern console_set_cursor
 
+extern timer_ticks
+
 
 ; ============================================================
 ; VertexOS Shell
@@ -203,6 +205,20 @@ shell_execute:
 
 
     ; ========================================================
+    ; TICKS
+    ; ========================================================
+
+    mov esi, shell_buffer
+    mov edi, cmd_ticks
+
+    call strings_equal
+
+    cmp eax, 1
+
+    je shell_cmd_ticks
+
+
+    ; ========================================================
     ; ECHO
     ; ========================================================
 
@@ -272,6 +288,11 @@ shell_cmd_help:
     call console_newline
 
     mov esi, help_line6
+    call console_print
+
+    call console_newline
+
+    mov esi, help_line7
     call console_print
 
     call console_newline
@@ -403,6 +424,136 @@ shell_cmd_clear:
     call shell_print_prompt
 
     jmp shell_execute_done
+
+
+; ============================================================
+; TICKS
+;
+; Displays the number of timer interrupts received.
+;
+; PIT frequency:
+;
+;     approximately 100 Hz
+;
+; Therefore:
+;
+;     100 ticks ~= 1 second
+;
+; ============================================================
+
+shell_cmd_ticks:
+
+    call console_newline
+
+    mov esi, ticks_label
+    call console_print
+
+    mov eax, [timer_ticks]
+
+    call shell_print_decimal
+
+    call console_newline
+
+    call shell_print_prompt
+
+    jmp shell_execute_done
+
+
+; ============================================================
+; PRINT DECIMAL
+;
+; EAX = unsigned 32-bit integer
+;
+; Prints the value in decimal.
+;
+; Example:
+;
+;     EAX = 1234
+;
+; Output:
+;
+;     1234
+; ============================================================
+
+shell_print_decimal:
+
+    ; --------------------------------------------------------
+    ; Special case: zero
+    ; --------------------------------------------------------
+
+    cmp eax, 0
+
+    jne shell_decimal_nonzero
+
+    mov al, '0'
+    call console_putc
+
+    ret
+
+
+shell_decimal_nonzero:
+
+    ; --------------------------------------------------------
+    ; Preserve registers.
+    ; --------------------------------------------------------
+
+    push eax
+    push ebx
+    push ecx
+    push edx
+
+
+    ; --------------------------------------------------------
+    ; Use stack as a temporary digit buffer.
+    ;
+    ; Each decimal digit is pushed separately.
+    ; --------------------------------------------------------
+
+    xor ecx, ecx
+
+    mov ebx, 10
+
+
+shell_decimal_convert:
+
+    xor edx, edx
+
+    div ebx
+
+    add dl, '0'
+
+    push edx
+
+    inc ecx
+
+    cmp eax, 0
+
+    jne shell_decimal_convert
+
+
+    ; --------------------------------------------------------
+    ; Print digits in correct order.
+    ; --------------------------------------------------------
+
+shell_decimal_print:
+
+    pop eax
+
+    call console_putc
+
+    loop shell_decimal_print
+
+
+    ; --------------------------------------------------------
+    ; Restore registers.
+    ; --------------------------------------------------------
+
+    pop edx
+    pop ecx
+    pop ebx
+    pop eax
+
+    ret
 
 
 ; ============================================================
@@ -763,6 +914,11 @@ cmd_clear:
     db "clear", 0
 
 
+cmd_ticks:
+
+    db "ticks", 0
+
+
 cmd_echo:
 
     db "echo", 0
@@ -814,6 +970,20 @@ help_line5:
 help_line6:
 
     db "  echo    - Print text", 0
+
+
+help_line7:
+
+    db "  ticks   - Show timer interrupt count", 0
+
+
+; ============================================================
+; TICKS TEXT
+; ============================================================
+
+ticks_label:
+
+    db "Timer ticks: ", 0
 
 
 ; ============================================================

@@ -20,6 +20,9 @@ IDT_OBJ = build/idt.o
 PIC_SRC = kernel/interrupts/pic.asm
 PIC_OBJ = build/pic.o
 
+TIMER_SRC = kernel/interrupts/timer.asm
+TIMER_OBJ = build/timer.o
+
 EXCEPTIONS_SRC = kernel/interrupts/exceptions.asm
 EXCEPTIONS_OBJ = build/exceptions.o
 
@@ -100,6 +103,15 @@ $(PIC_OBJ): $(PIC_SRC)
 
 
 # ============================================================
+# PROGRAMMABLE INTERVAL TIMER
+# ============================================================
+
+$(TIMER_OBJ): $(TIMER_SRC)
+	mkdir -p build
+	$(ASM) -f elf32 $(TIMER_SRC) -o $(TIMER_OBJ)
+
+
+# ============================================================
 # CPU EXCEPTIONS
 # ============================================================
 
@@ -143,6 +155,7 @@ $(KERNEL_ELF): \
 	$(KERNEL_OBJ) \
 	$(IDT_OBJ) \
 	$(PIC_OBJ) \
+	$(TIMER_OBJ) \
 	$(EXCEPTIONS_OBJ) \
 	$(KEYBOARD_OBJ) \
 	$(SHELL_OBJ) \
@@ -154,6 +167,7 @@ $(KERNEL_ELF): \
 		$(KERNEL_OBJ) \
 		$(IDT_OBJ) \
 		$(PIC_OBJ) \
+		$(TIMER_OBJ) \
 		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \
@@ -213,6 +227,7 @@ clean:
 		$(KERNEL_OBJ) \
 		$(IDT_OBJ) \
 		$(PIC_OBJ) \
+		$(TIMER_OBJ) \
 		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \

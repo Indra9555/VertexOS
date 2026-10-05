@@ -20,6 +20,10 @@ extern idt_init
 extern pic_init
 
 
+; Timer subsystem
+extern timer_init
+
+
 ; Keyboard subsystem
 extern keyboard_print_prompt
 extern keyboard_set_cursor
@@ -37,7 +41,9 @@ extern shell_update
 ;
 ;   - Initialize core subsystems
 ;   - Display kernel startup information
-;   - Initialize interrupts
+;   - Initialize IDT
+;   - Initialize PIC
+;   - Initialize PIT timer
 ;   - Initialize shell
 ;   - Start the main kernel loop
 ;
@@ -109,21 +115,45 @@ kernel_start:
 
 
     ; ========================================================
-    ; ENABLE KEYBOARD IRQ1
+    ; INITIALIZE PIT TIMER
     ;
+    ; Configures PIT channel 0 for approximately 100 Hz.
+    ;
+    ; PIT IRQ0 → PIC IRQ0 → IDT vector 0x20
+    ; ========================================================
+
+    call timer_init
+
+
+    ; ========================================================
+    ; ENABLE TIMER IRQ0 AND KEYBOARD IRQ1
+    ;
+    ; IRQ0 = PIT timer
     ; IRQ1 = keyboard
     ;
     ; PIC master data port = 0x21
+    ;
+    ; Bit 0:
+    ;   0 = IRQ0 enabled
+    ;   1 = IRQ0 masked
     ;
     ; Bit 1:
     ;   0 = IRQ1 enabled
     ;   1 = IRQ1 masked
     ;
+    ; 0xFC = 11111100b
+    ;
+    ; Therefore:
+    ;
+    ;   IRQ0 → enabled
+    ;   IRQ1 → enabled
+    ;   IRQ2-7 → masked
+    ;
     ; ========================================================
 
     in al, 0x21
 
-    and al, 0xFD
+    and al, 0xFC
 
     out 0x21, al
 
@@ -223,6 +253,8 @@ shell_print_initial_prompt:
 ; ============================================================
 ; KERNEL STARTUP MESSAGES
 ; ============================================================
+
+section .data
 
 title_msg:
 
