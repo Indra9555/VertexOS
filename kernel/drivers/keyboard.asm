@@ -25,42 +25,10 @@ extern console_backspace
 
 
 ; ============================================================
-; VertexOS Keyboard Driver
-;
-; IRQ1 = Keyboard
-; Keyboard data port = 0x60
-; PIC master command port = 0x20
-;
-; Responsibilities:
-;
-;   - Read keyboard scancodes
-;   - Translate keys
-;   - Handle Shift
-;   - Handle Enter
-;   - Handle Backspace
-;   - Maintain input buffer
-;   - Maintain command-ready state
-;   - Manage command-line editing
-;
-; Display output is handled through the Console subsystem.
-;
-; Architecture:
-;
-;   Keyboard Driver
-;        ↓
-;     Console
-;        ↓
-;       VGA
-;
-; ============================================================
-
-
-; ============================================================
 ; CONSTANTS
 ; ============================================================
 
 MAX_INPUT_LENGTH    equ 76
-
 INPUT_BUFFER_SIZE   equ MAX_INPUT_LENGTH + 1
 
 
@@ -72,124 +40,175 @@ keyboard_handler:
 
     pushad
 
-
-    ; --------------------------------------------------------
-    ; Read keyboard scancode
-    ; --------------------------------------------------------
-
     in al, 0x60
 
-
     ; --------------------------------------------------------
-    ; Ignore key-release scancodes
+    ; Ignore key-release scancodes.
     ; --------------------------------------------------------
 
     test al, 0x80
-
     jnz keyboard_key_release
 
-
     ; --------------------------------------------------------
-    ; Left Shift
+    ; Left Shift.
     ; --------------------------------------------------------
 
     cmp al, 0x2A
-
     je keyboard_shift_press
 
-
     ; --------------------------------------------------------
-    ; Right Shift
+    ; Right Shift.
     ; --------------------------------------------------------
 
     cmp al, 0x36
-
     je keyboard_shift_press
 
+    ; --------------------------------------------------------
+    ; Caps Lock.
+    ;
+    ; Set-1 scancode: 0x3A
+    ; --------------------------------------------------------
+
+    cmp al, 0x3A
+    je keyboard_caps_lock
 
     ; --------------------------------------------------------
-    ; Enter
+    ; Enter.
     ; --------------------------------------------------------
 
     cmp al, 0x1C
-
     je keyboard_enter
 
-
     ; --------------------------------------------------------
-    ; Backspace
+    ; Backspace.
     ; --------------------------------------------------------
 
     cmp al, 0x0E
-
     je keyboard_backspace
 
-
     ; --------------------------------------------------------
-    ; Convert scancode to character
+    ; Convert scancode to character.
     ; --------------------------------------------------------
 
     movzx eax, al
 
     cmp eax, 0x39
-
     ja keyboard_done
 
-
     ; --------------------------------------------------------
-    ; Check Shift state
+    ; Select shifted or normal table.
+    ;
+    ; Shift controls symbols.
+    ; Caps Lock only affects letters.
     ; --------------------------------------------------------
 
     cmp byte [shift_pressed], 0
+    jne keyboard_shifted_character
 
-    je keyboard_normal_character
-
-
-    mov al, [shift_table + eax]
+    mov al, [keyboard_table + eax]
 
     jmp keyboard_character_ready
 
 
-keyboard_normal_character:
+keyboard_shifted_character:
 
-    mov al, [keyboard_table + eax]
+    mov al, [shift_table + eax]
 
 
 keyboard_character_ready:
 
     ; --------------------------------------------------------
-    ; Ignore unmapped keys
+    ; Ignore unmapped keys.
     ; --------------------------------------------------------
 
     test al, al
-
     jz keyboard_done
 
+    ; --------------------------------------------------------
+    ; Apply Caps Lock to alphabetic characters.
+    ;
+    ; The keyboard tables contain lowercase letters in the
+    ; normal table and uppercase letters in the shifted table.
+    ;
+    ; We therefore determine whether AL is an alphabetic
+    ; character and then apply the Caps/Shift combination.
+    ; --------------------------------------------------------
+
+    cmp al, 'a'
+    jb keyboard_check_uppercase
+
+    cmp al, 'z'
+    ja keyboard_check_uppercase
 
     ; --------------------------------------------------------
-    ; Prevent input overflow
+    ; AL is lowercase.
+    ;
+    ; Convert to uppercase when:
+    ;
+    ;   Caps ON + Shift OFF
+    ;
+    ; Shift ON already selected uppercase, so only modify
+    ; when Caps Lock is active and Shift is not active.
+    ; --------------------------------------------------------
+
+    cmp byte [caps_lock_pressed], 0
+    je keyboard_character_ready_final
+
+    cmp byte [shift_pressed], 0
+    jne keyboard_character_ready_final
+
+    sub al, 'a' - 'A'
+
+    jmp keyboard_character_ready_final
+
+
+keyboard_check_uppercase:
+
+    cmp al, 'A'
+    jb keyboard_character_ready_final
+
+    cmp al, 'Z'
+    ja keyboard_character_ready_final
+
+    ; --------------------------------------------------------
+    ; AL is uppercase.
+    ;
+    ; This happens when Shift selected an uppercase letter.
+    ;
+    ; Convert back to lowercase when:
+    ;
+    ;   Caps ON + Shift ON
+    ; --------------------------------------------------------
+
+    cmp byte [caps_lock_pressed], 0
+    je keyboard_character_ready_final
+
+    cmp byte [shift_pressed], 0
+    je keyboard_character_ready_final
+
+    add al, 'a' - 'A'
+
+
+keyboard_character_ready_final:
+
+    ; --------------------------------------------------------
+    ; Prevent input overflow.
     ; --------------------------------------------------------
 
     cmp dword [input_length], MAX_INPUT_LENGTH
-
     jae keyboard_done
 
-
     ; --------------------------------------------------------
-    ; Save character in input buffer
+    ; Save character in input buffer.
     ; --------------------------------------------------------
 
     call buffer_write
 
-
     ; --------------------------------------------------------
     ; Display character through Console.
-    ;
-    ; AL = character
     ; --------------------------------------------------------
 
     call console_putc
-
 
     ; --------------------------------------------------------
     ; Increase input length.
@@ -197,15 +216,11 @@ keyboard_character_ready:
 
     inc dword [input_length]
 
-
     ; --------------------------------------------------------
     ; Draw visible cursor.
-    ;
-    ; Console owns cursor rendering.
     ; --------------------------------------------------------
 
     call console_draw_cursor
-
 
     jmp keyboard_done
 
@@ -222,20 +237,27 @@ keyboard_shift_press:
 
 
 ; ============================================================
+; CAPS LOCK
+; ============================================================
+
+keyboard_caps_lock:
+
+    xor byte [caps_lock_pressed], 1
+
+    jmp keyboard_done
+
+
+; ============================================================
 ; KEY RELEASE
 ; ============================================================
 
 keyboard_key_release:
 
     cmp al, 0xAA
-
     je keyboard_shift_release
-
 
     cmp al, 0xB6
-
     je keyboard_shift_release
-
 
     jmp keyboard_done
 
@@ -253,63 +275,19 @@ keyboard_shift_release:
 
 ; ============================================================
 ; ENTER
-;
-; The keyboard driver does not execute commands.
-;
-; It only:
-;
-;   - removes the visible cursor
-;   - moves to the next line
-;   - marks the command ready
-;
-; The shell retrieves the command later.
 ; ============================================================
 
 keyboard_enter:
 
-    ; --------------------------------------------------------
-    ; Ignore Enter when input is empty.
-    ; --------------------------------------------------------
-
     cmp dword [input_length], 0
-
     je keyboard_done
-
-
-    ; --------------------------------------------------------
-    ; Remove visible cursor.
-    ; --------------------------------------------------------
 
     call console_remove_cursor
 
-
-    ; --------------------------------------------------------
-    ; Move to next line.
-    ;
-    ; Console owns newline and scrolling.
-    ; --------------------------------------------------------
-
     mov al, 10
-
     call console_putc
 
-
-    ; --------------------------------------------------------
-    ; Mark command ready.
-    ; --------------------------------------------------------
-
     mov byte [keyboard_command_ready], 1
-
-
-    ; --------------------------------------------------------
-    ; Do NOT:
-    ;
-    ; - clear input buffer
-    ; - reset input length
-    ; - print a new prompt
-    ;
-    ; Shell performs those operations after execution.
-    ; --------------------------------------------------------
 
     jmp keyboard_done
 
@@ -320,69 +298,27 @@ keyboard_enter:
 
 keyboard_backspace:
 
-    ; --------------------------------------------------------
-    ; Nothing to delete.
-    ; --------------------------------------------------------
-
     cmp dword [input_length], 0
-
     je keyboard_done
-
 
     ; --------------------------------------------------------
     ; Protect the prompt boundary.
-    ;
-    ; input_start stores the console cursor position at the
-    ; beginning of the current user input.
     ; --------------------------------------------------------
 
     call console_get_cursor
 
     cmp eax, [input_start]
-
     je keyboard_done
-
-
-    ; --------------------------------------------------------
-    ; Remove visible cursor.
-    ; --------------------------------------------------------
 
     call console_remove_cursor
 
-
-    ; --------------------------------------------------------
-    ; Console owns backspace behavior.
-    ;
-    ; This:
-    ;
-    ;   - moves cursor backward
-    ;   - erases previous character
-    ;   - keeps cursor at erased position
-    ; --------------------------------------------------------
-
     call console_backspace
-
-
-    ; --------------------------------------------------------
-    ; Remove character from input buffer.
-    ; --------------------------------------------------------
 
     call buffer_backspace
 
-
-    ; --------------------------------------------------------
-    ; Decrease input length.
-    ; --------------------------------------------------------
-
     dec dword [input_length]
 
-
-    ; --------------------------------------------------------
-    ; Draw visible cursor.
-    ; --------------------------------------------------------
-
     call console_draw_cursor
-
 
     jmp keyboard_done
 
@@ -393,14 +329,8 @@ keyboard_backspace:
 
 keyboard_done:
 
-    ; --------------------------------------------------------
-    ; Send EOI to master PIC.
-    ; --------------------------------------------------------
-
     mov al, 0x20
-
     out 0x20, al
-
 
     popad
 
@@ -418,36 +348,18 @@ buffer_write:
     push eax
     push ebx
 
-
     mov ebx, [input_buffer_write]
 
-
-    ; --------------------------------------------------------
-    ; The input buffer contains:
-    ;
-    ;   MAX_INPUT_LENGTH characters
-    ;   + one byte reserved for '\0'
-    ; --------------------------------------------------------
-
     cmp ebx, MAX_INPUT_LENGTH
-
     jae buffer_write_done
 
-
     mov [input_buffer + ebx], al
-
 
     inc ebx
 
     mov [input_buffer_write], ebx
 
-
-    ; --------------------------------------------------------
-    ; Keep the buffer null terminated.
-    ; --------------------------------------------------------
-
     mov byte [input_buffer + ebx], 0
-
 
 buffer_write_done:
 
@@ -466,23 +378,16 @@ buffer_backspace:
     push eax
     push ebx
 
-
     mov ebx, [input_buffer_write]
 
-
     cmp ebx, 0
-
     je buffer_backspace_done
-
 
     dec ebx
 
-
     mov byte [input_buffer + ebx], 0
 
-
     mov [input_buffer_write], ebx
-
 
 buffer_backspace_done:
 
@@ -501,24 +406,18 @@ buffer_clear:
     push eax
     push ecx
 
-
     xor eax, eax
-
 
 buffer_clear_loop:
 
     cmp eax, INPUT_BUFFER_SIZE
-
     jae buffer_clear_done
 
-
     mov byte [input_buffer + eax], 0
-
 
     inc eax
 
     jmp buffer_clear_loop
-
 
 buffer_clear_done:
 
@@ -530,21 +429,11 @@ buffer_clear_done:
 
 ; ============================================================
 ; PRINT PROMPT
-;
-; Prints:
-;
-;   > _
-;
-; The Console owns the output position.
 ; ============================================================
 
 keyboard_print_prompt:
 
     push eax
-
-    ; --------------------------------------------------------
-    ; Print prompt.
-    ; --------------------------------------------------------
 
     mov al, '>'
     call console_putc
@@ -552,21 +441,10 @@ keyboard_print_prompt:
     mov al, ' '
     call console_putc
 
-
-    ; --------------------------------------------------------
-    ; Save beginning of user input.
-    ; --------------------------------------------------------
-
     call console_get_cursor
     mov [input_start], eax
 
-
-    ; --------------------------------------------------------
-    ; Draw cursor.
-    ; --------------------------------------------------------
-
     call console_draw_cursor
-
 
     pop eax
 
@@ -575,11 +453,6 @@ keyboard_print_prompt:
 
 ; ============================================================
 ; GET CURSOR
-;
-; Returns:
-;
-;   EAX = current console cursor position
-;
 ; ============================================================
 
 keyboard_get_cursor:
@@ -591,13 +464,6 @@ keyboard_get_cursor:
 
 ; ============================================================
 ; SET CURSOR
-;
-; Input:
-;
-;   EAX = VGA cursor address
-;
-; Synchronizes the Console cursor.
-;
 ; ============================================================
 
 keyboard_set_cursor:
@@ -615,8 +481,6 @@ keyboard_set_cursor:
 ; Returns:
 ;
 ;   EAX = number of characters copied
-;
-; The keyboard buffer is cleared after copying.
 ; ============================================================
 
 keyboard_get_input:
@@ -626,20 +490,14 @@ keyboard_get_input:
     push edx
     push esi
 
-
     xor eax, eax
-
 
     mov esi, input_buffer
 
-
     mov ecx, [input_buffer_write]
 
-
     test ecx, ecx
-
     jz keyboard_get_input_empty
-
 
 keyboard_get_input_loop:
 
@@ -647,58 +505,25 @@ keyboard_get_input_loop:
 
     mov [edi + eax], bl
 
-
     inc eax
-
 
     cmp eax, ecx
 
     jb keyboard_get_input_loop
 
-
 keyboard_get_input_empty:
-
-    ; --------------------------------------------------------
-    ; Null terminate destination.
-    ; --------------------------------------------------------
 
     mov byte [edi + eax], 0
 
-
-    ; --------------------------------------------------------
-    ; Save returned length.
-    ; --------------------------------------------------------
-
     mov edx, eax
-
-
-    ; --------------------------------------------------------
-    ; Clear keyboard buffer.
-    ; --------------------------------------------------------
 
     call buffer_clear
 
-
-    ; --------------------------------------------------------
-    ; Reset buffer position.
-    ; --------------------------------------------------------
-
     mov dword [input_buffer_write], 0
-
-
-    ; --------------------------------------------------------
-    ; Reset current input length.
-    ; --------------------------------------------------------
 
     mov dword [input_length], 0
 
-
-    ; --------------------------------------------------------
-    ; Return length.
-    ; --------------------------------------------------------
-
     mov eax, edx
-
 
     pop esi
     pop edx
@@ -720,6 +545,11 @@ section .data
 ; ============================================================
 
 shift_pressed:
+
+    db 0
+
+
+caps_lock_pressed:
 
     db 0
 
