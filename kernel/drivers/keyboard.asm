@@ -31,6 +31,14 @@ extern console_backspace
 MAX_INPUT_LENGTH    equ 76
 INPUT_BUFFER_SIZE   equ MAX_INPUT_LENGTH + 1
 
+PS2_STATUS_PORT     equ 0x64
+PS2_DATA_PORT       equ 0x60
+
+PS2_STATUS_INPUT    equ 0x02
+
+KEYBOARD_SET_LEDS   equ 0xED
+KEYBOARD_ACK        equ 0xFA
+
 
 ; ============================================================
 ; KEYBOARD INTERRUPT HANDLER
@@ -40,7 +48,7 @@ keyboard_handler:
 
     pushad
 
-    in al, 0x60
+    in al, PS2_DATA_PORT
 
     ; --------------------------------------------------------
     ; Ignore key-release scancodes.
@@ -126,12 +134,6 @@ keyboard_character_ready:
 
     ; --------------------------------------------------------
     ; Apply Caps Lock to alphabetic characters.
-    ;
-    ; The keyboard tables contain lowercase letters in the
-    ; normal table and uppercase letters in the shifted table.
-    ;
-    ; We therefore determine whether AL is an alphabetic
-    ; character and then apply the Caps/Shift combination.
     ; --------------------------------------------------------
 
     cmp al, 'a'
@@ -143,12 +145,7 @@ keyboard_character_ready:
     ; --------------------------------------------------------
     ; AL is lowercase.
     ;
-    ; Convert to uppercase when:
-    ;
-    ;   Caps ON + Shift OFF
-    ;
-    ; Shift ON already selected uppercase, so only modify
-    ; when Caps Lock is active and Shift is not active.
+    ; Caps ON + Shift OFF → uppercase
     ; --------------------------------------------------------
 
     cmp byte [caps_lock_pressed], 0
@@ -173,11 +170,7 @@ keyboard_check_uppercase:
     ; --------------------------------------------------------
     ; AL is uppercase.
     ;
-    ; This happens when Shift selected an uppercase letter.
-    ;
-    ; Convert back to lowercase when:
-    ;
-    ;   Caps ON + Shift ON
+    ; Caps ON + Shift ON → lowercase
     ; --------------------------------------------------------
 
     cmp byte [caps_lock_pressed], 0
@@ -242,7 +235,17 @@ keyboard_shift_press:
 
 keyboard_caps_lock:
 
+    ; --------------------------------------------------------
+    ; Toggle software Caps Lock state.
+    ; --------------------------------------------------------
+
     xor byte [caps_lock_pressed], 1
+
+    ; --------------------------------------------------------
+    ; Synchronize physical keyboard LED.
+    ; --------------------------------------------------------
+
+    call keyboard_update_led
 
     jmp keyboard_done
 
@@ -335,6 +338,135 @@ keyboard_done:
     popad
 
     iretd
+
+
+; ============================================================
+; UPDATE KEYBOARD LED
+;
+; Uses PS/2 keyboard command:
+;
+;   0xED = Set LEDs
+;
+; LED byte:
+;
+;   bit 0 = Scroll Lock
+;   bit 1 = Num Lock
+;   bit 2 = Caps Lock
+;
+; ============================================================
+
+keyboard_update_led:
+
+    push eax
+    push ecx
+
+
+    ; --------------------------------------------------------
+    ; Wait until keyboard controller input buffer is clear.
+    ;
+    ; Status bit 1:
+    ;
+    ;   0 = controller can accept data
+    ;   1 = controller input buffer full
+    ;
+    ; Use a bounded loop so a broken controller cannot hang
+    ; the entire kernel forever.
+    ; --------------------------------------------------------
+
+    mov ecx, 0x0000FFFF
+
+keyboard_led_wait_command:
+
+    in al, PS2_STATUS_PORT
+
+    test al, PS2_STATUS_INPUT
+    jz keyboard_led_send_command
+
+    loop keyboard_led_wait_command
+
+    jmp keyboard_led_done
+
+
+keyboard_led_send_command:
+
+    mov al, KEYBOARD_SET_LEDS
+    out PS2_DATA_PORT, al
+
+
+    ; --------------------------------------------------------
+    ; Wait for keyboard ACK.
+    ;
+    ; The keyboard normally responds with 0xFA.
+    ;
+    ; We poll the controller output buffer.
+    ; --------------------------------------------------------
+
+    mov ecx, 0x0000FFFF
+
+keyboard_led_wait_ack:
+
+    in al, PS2_STATUS_PORT
+
+    test al, 0x01
+    jnz keyboard_led_read_ack
+
+    loop keyboard_led_wait_ack
+
+    jmp keyboard_led_done
+
+
+keyboard_led_read_ack:
+
+    in al, PS2_DATA_PORT
+
+    cmp al, KEYBOARD_ACK
+    jne keyboard_led_done
+
+
+    ; --------------------------------------------------------
+    ; Wait until keyboard controller input buffer is clear
+    ; before sending the LED state byte.
+    ; --------------------------------------------------------
+
+    mov ecx, 0x0000FFFF
+
+keyboard_led_wait_data:
+
+    in al, PS2_STATUS_PORT
+
+    test al, PS2_STATUS_INPUT
+    jz keyboard_led_send_data
+
+    loop keyboard_led_wait_data
+
+    jmp keyboard_led_done
+
+
+keyboard_led_send_data:
+
+    xor eax, eax
+
+    ; --------------------------------------------------------
+    ; Caps Lock = bit 2.
+    ; --------------------------------------------------------
+
+    cmp byte [caps_lock_pressed], 0
+    je keyboard_led_caps_off
+
+    mov al, 0x04
+
+
+keyboard_led_caps_off:
+
+    out PS2_DATA_PORT, al
+
+
+keyboard_led_done:
+
+    pop ecx
+    pop eax
+
+    ret
 
 
 ; ============================================================
@@ -539,155 +671,83 @@ keyboard_get_input_empty:
 
 section .data
 
-
-; ============================================================
-; Keyboard state
-; ============================================================
-
 shift_pressed:
-
     db 0
-
 
 caps_lock_pressed:
-
     db 0
-
-
-; ============================================================
-; Start of current input
-; ============================================================
 
 input_start:
-
     dd 0
-
-
-; ============================================================
-; Current input length
-; ============================================================
 
 input_length:
-
     dd 0
-
-
-; ============================================================
-; Command ready flag
-; ============================================================
 
 keyboard_command_ready:
-
     db 0
 
-
-; ============================================================
-; Input buffer
-; ============================================================
-
 input_buffer:
-
     times INPUT_BUFFER_SIZE db 0
 
-
-; ============================================================
-; Next buffer write position
-; ============================================================
-
 input_buffer_write:
-
     dd 0
 
 
 ; ============================================================
-; STANDARD US KEYBOARD SET 1
+; KEYBOARD TABLE
 ; ============================================================
 
 keyboard_table:
 
     db 0
     db 27
-
     db '1','2','3','4','5','6','7','8','9','0'
-
     db '-','='
-
     db 8
     db 9
-
     db 'q','w','e','r','t','y','u','i','o','p'
-
     db '[',']'
-
     db 13
-
     db 0
-
     db 'a','s','d','f','g','h','j','k','l'
-
     db ';',"'"
-
     db '`'
-
     db 0
-
     db '\','z','x','c','v','b','n','m'
-
     db ',','.','/'
-
     db 0
-
     db '*'
-
     db 0
-
     db ' '
 
     times 0x3A - ($ - keyboard_table) db 0
 
 
 ; ============================================================
-; SHIFTED US KEYBOARD SET 1
+; SHIFT TABLE
 ; ============================================================
 
 shift_table:
 
     db 0
     db 27
-
     db '!','@','#','$','%','^','&','*','(',')'
-
     db '_','+'
-
     db 8
     db 9
-
     db 'Q','W','E','R','T','Y','U','I','O','P'
-
     db '{','}'
-
     db 13
-
     db 0
-
     db 'A','S','D','F','G','H','J','K','L'
-
     db ':','"'
-
     db '~'
-
     db 0
-
     db '|','Z','X','C','V','B','N','M'
-
     db '<','>','?'
-
     db 0
-
     db '*'
-
     db 0
-
     db ' '
 
     times 0x3A - ($ - shift_table) db 0
