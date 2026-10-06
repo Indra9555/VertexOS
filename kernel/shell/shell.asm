@@ -21,7 +21,8 @@ extern console_newline
 extern console_get_cursor
 extern console_set_cursor
 
-extern timer_ticks
+extern time_get_ticks
+extern time_get_seconds
 
 
 ; ============================================================
@@ -40,6 +41,10 @@ extern timer_ticks
 ; Output path:
 ;
 ;   Shell -> Console -> VGA
+;
+; Time path:
+;
+;   Shell -> Time Subsystem -> Timer
 ;
 ; ============================================================
 
@@ -219,6 +224,20 @@ shell_execute:
 
 
     ; ========================================================
+    ; UPTIME
+    ; ========================================================
+
+    mov esi, shell_buffer
+    mov edi, cmd_uptime
+
+    call strings_equal
+
+    cmp eax, 1
+
+    je shell_cmd_uptime
+
+
+    ; ========================================================
     ; ECHO
     ; ========================================================
 
@@ -293,6 +312,11 @@ shell_cmd_help:
     call console_newline
 
     mov esi, help_line7
+    call console_print
+
+    call console_newline
+
+    mov esi, help_line8
     call console_print
 
     call console_newline
@@ -431,13 +455,7 @@ shell_cmd_clear:
 ;
 ; Displays the number of timer interrupts received.
 ;
-; PIT frequency:
-;
-;     approximately 100 Hz
-;
-; Therefore:
-;
-;     100 ticks ~= 1 second
+; The shell accesses the timer through the Time subsystem.
 ;
 ; ============================================================
 
@@ -448,9 +466,39 @@ shell_cmd_ticks:
     mov esi, ticks_label
     call console_print
 
-    mov eax, [timer_ticks]
+    call time_get_ticks
 
     call shell_print_decimal
+
+    call console_newline
+
+    call shell_print_prompt
+
+    jmp shell_execute_done
+
+
+; ============================================================
+; UPTIME
+;
+; Displays the number of seconds since the kernel started.
+;
+; The Time subsystem converts timer ticks into seconds.
+;
+; ============================================================
+
+shell_cmd_uptime:
+
+    call console_newline
+
+    mov esi, uptime_label
+    call console_print
+
+    call time_get_seconds
+
+    call shell_print_decimal
+
+    mov esi, seconds_label
+    call console_print
 
     call console_newline
 
@@ -919,6 +967,11 @@ cmd_ticks:
     db "ticks", 0
 
 
+cmd_uptime:
+
+    db "uptime", 0
+
+
 cmd_echo:
 
     db "echo", 0
@@ -977,13 +1030,28 @@ help_line7:
     db "  ticks   - Show timer interrupt count", 0
 
 
+help_line8:
+
+    db "  uptime  - Show system uptime", 0
+
+
 ; ============================================================
-; TICKS TEXT
+; TIME TEXT
 ; ============================================================
 
 ticks_label:
 
     db "Timer ticks: ", 0
+
+
+uptime_label:
+
+    db "Uptime: ", 0
+
+
+seconds_label:
+
+    db " seconds", 0
 
 
 ; ============================================================

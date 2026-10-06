@@ -32,7 +32,7 @@ extern keyboard_set_cursor
 ; Shell subsystem
 extern shell_init
 extern shell_update
-
+extern time_init
 
 ; ============================================================
 ; VertexOS Kernel Entry Point
@@ -123,7 +123,7 @@ kernel_start:
     ; ========================================================
 
     call timer_init
-
+    call time_init
 
     ; ========================================================
     ; ENABLE TIMER IRQ0 AND KEYBOARD IRQ1

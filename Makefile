@@ -35,6 +35,8 @@ SHELL_OBJ = build/shell.o
 CONSOLE_SRC = kernel/console/console.asm
 CONSOLE_OBJ = build/console.o
 
+TIME_SRC = kernel/time/time.asm
+TIME_OBJ = build/time.o
 
 # ============================================================
 # KERNEL
@@ -83,6 +85,14 @@ $(KERNEL_OBJ): $(KERNEL_SRC)
 	mkdir -p build
 	$(ASM) -f elf32 $(KERNEL_SRC) -o $(KERNEL_OBJ)
 
+
+# ============================================================
+# TIMEKEEPING
+# ============================================================
+
+$(TIME_OBJ): $(TIME_SRC)
+	mkdir -p build
+	$(ASM) -f elf32 $(TIME_SRC) -o $(TIME_OBJ)
 
 # ============================================================
 # INTERRUPT DESCRIPTOR TABLE
@@ -160,6 +170,7 @@ $(KERNEL_ELF): \
 	$(KEYBOARD_OBJ) \
 	$(SHELL_OBJ) \
 	$(CONSOLE_OBJ) \
+	$(TIME_OBJ) \
 	$(LINKER_SCRIPT)
 
 	$(LD) -m elf_i386 -T $(LINKER_SCRIPT) \
@@ -171,6 +182,7 @@ $(KERNEL_ELF): \
 		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \
+	        $(TIME_OBJ) \
 		$(CONSOLE_OBJ)
 
 
@@ -234,4 +246,5 @@ clean:
 		$(CONSOLE_OBJ) \
 		$(KERNEL_ELF) \
 		$(KERNEL_BIN) \
+                $(TIME_OBJ) \
 		$(OS_IMAGE)
