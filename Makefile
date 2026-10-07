@@ -38,6 +38,18 @@ CONSOLE_OBJ = build/console.o
 TIME_SRC = kernel/time/time.asm
 TIME_OBJ = build/time.o
 
+
+# ============================================================
+# KERNEL LIBRARY
+# ============================================================
+
+STRING_SRC = kernel/lib/string.asm
+STRING_OBJ = build/string.o
+
+NUMBER_SRC = kernel/lib/number.asm
+NUMBER_OBJ = build/number.o
+
+
 # ============================================================
 # KERNEL
 # ============================================================
@@ -93,6 +105,25 @@ $(KERNEL_OBJ): $(KERNEL_SRC)
 $(TIME_OBJ): $(TIME_SRC)
 	mkdir -p build
 	$(ASM) -f elf32 $(TIME_SRC) -o $(TIME_OBJ)
+
+
+# ============================================================
+# KERNEL LIBRARY — STRING
+# ============================================================
+
+$(STRING_OBJ): $(STRING_SRC) kernel/include/string.inc
+	mkdir -p build
+	$(ASM) -f elf32 $(STRING_SRC) -o $(STRING_OBJ)
+
+
+# ============================================================
+# KERNEL LIBRARY — NUMBER
+# ============================================================
+
+$(NUMBER_OBJ): $(NUMBER_SRC) kernel/include/number.inc
+	mkdir -p build
+	$(ASM) -f elf32 $(NUMBER_SRC) -o $(NUMBER_OBJ)
+
 
 # ============================================================
 # INTERRUPT DESCRIPTOR TABLE
@@ -171,6 +202,8 @@ $(KERNEL_ELF): \
 	$(SHELL_OBJ) \
 	$(CONSOLE_OBJ) \
 	$(TIME_OBJ) \
+	$(STRING_OBJ) \
+	$(NUMBER_OBJ) \
 	$(LINKER_SCRIPT)
 
 	$(LD) -m elf_i386 -T $(LINKER_SCRIPT) \
@@ -182,8 +215,10 @@ $(KERNEL_ELF): \
 		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \
-	        $(TIME_OBJ) \
-		$(CONSOLE_OBJ)
+		$(TIME_OBJ) \
+		$(CONSOLE_OBJ) \
+		$(STRING_OBJ) \
+		$(NUMBER_OBJ)
 
 
 # ============================================================
@@ -197,29 +232,13 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 # ============================================================
 # CREATE DISK IMAGE
 # ============================================================
-#
-# Bootloader loads:
-#
-#	32 sectors × 512 bytes = 16384 bytes
-#
-# Kernel starts immediately after boot sector.
-#
-# Therefore image contains:
-#
-#	512 byte boot sector
-#	16384 byte kernel area
-#
-# Total required space = 16896 bytes
-#
-# We use 20 KB so the OS has additional room to grow.
-#
-# ============================================================
-
-image: $(OS_IMAGE)
 
 $(OS_IMAGE): $(BOOT_BIN) $(KERNEL_BIN)
 	cat $(BOOT_BIN) $(KERNEL_BIN) > $(OS_IMAGE)
 	truncate -s 20480 $(OS_IMAGE)
+
+
+image: $(OS_IMAGE)
 
 
 # ============================================================
@@ -244,7 +263,9 @@ clean:
 		$(KEYBOARD_OBJ) \
 		$(SHELL_OBJ) \
 		$(CONSOLE_OBJ) \
+		$(TIME_OBJ) \
+		$(STRING_OBJ) \
+		$(NUMBER_OBJ) \
 		$(KERNEL_ELF) \
 		$(KERNEL_BIN) \
-                $(TIME_OBJ) \
 		$(OS_IMAGE)
