@@ -24,6 +24,8 @@ extern console_set_cursor
 extern time_get_ticks
 extern time_get_seconds
 
+extern kernel_panic
+
 
 ; ============================================================
 ; VertexOS Shell
@@ -77,44 +79,17 @@ shell_init:
 
 shell_update:
 
-    ; --------------------------------------------------------
-    ; Check command-ready flag
-    ; --------------------------------------------------------
-
     cmp byte [keyboard_command_ready], 1
 
     jne shell_update_done
 
-
-    ; --------------------------------------------------------
-    ; Clear command-ready flag
-    ; --------------------------------------------------------
-
     mov byte [keyboard_command_ready], 0
-
-
-    ; --------------------------------------------------------
-    ; Get command from keyboard driver
-    ;
-    ; EDI = destination buffer
-    ; EAX = command length
-    ; --------------------------------------------------------
 
     mov edi, shell_buffer
 
     call keyboard_get_input
 
-
-    ; --------------------------------------------------------
-    ; Save command length
-    ; --------------------------------------------------------
-
     mov [shell_command_length], eax
-
-
-    ; --------------------------------------------------------
-    ; Execute command
-    ; --------------------------------------------------------
 
     call shell_execute
 
@@ -238,6 +213,20 @@ shell_execute:
 
 
     ; ========================================================
+    ; PANIC
+    ; ========================================================
+
+    mov esi, shell_buffer
+    mov edi, cmd_panic
+
+    call strings_equal
+
+    cmp eax, 1
+
+    je shell_cmd_panic
+
+
+    ; ========================================================
     ; ECHO
     ; ========================================================
 
@@ -317,6 +306,11 @@ shell_cmd_help:
     call console_newline
 
     mov esi, help_line8
+    call console_print
+
+    call console_newline
+
+    mov esi, help_line9
     call console_print
 
     call console_newline
@@ -421,29 +415,13 @@ shell_cmd_info:
 
 shell_cmd_clear:
 
-    ; --------------------------------------------------------
-    ; Clear the entire console
-    ; --------------------------------------------------------
-
     call console_clear
-
-
-    ; --------------------------------------------------------
-    ; Reserve the first three rows for kernel information.
-    ;
-    ; Start shell output at row 3.
-    ; --------------------------------------------------------
 
     call console_get_cursor
 
     add eax, 3 * 160
 
     call console_set_cursor
-
-
-    ; --------------------------------------------------------
-    ; Synchronize keyboard and print new prompt.
-    ; --------------------------------------------------------
 
     call shell_print_prompt
 
@@ -452,11 +430,6 @@ shell_cmd_clear:
 
 ; ============================================================
 ; TICKS
-;
-; Displays the number of timer interrupts received.
-;
-; The shell accesses the timer through the Time subsystem.
-;
 ; ============================================================
 
 shell_cmd_ticks:
@@ -479,11 +452,6 @@ shell_cmd_ticks:
 
 ; ============================================================
 ; UPTIME
-;
-; Displays the number of seconds since the kernel started.
-;
-; The Time subsystem converts timer ticks into seconds.
-;
 ; ============================================================
 
 shell_cmd_uptime:
@@ -508,32 +476,41 @@ shell_cmd_uptime:
 
 
 ; ============================================================
+; PANIC
+;
+; Intentionally triggers the kernel panic system.
+;
+; This command NEVER returns.
+; ============================================================
+
+shell_cmd_panic:
+
+    call console_newline
+
+    mov esi, manual_panic_reason
+
+    call kernel_panic
+
+    ; kernel_panic never returns.
+    ; This instruction is therefore unreachable.
+
+    jmp shell_execute_done
+
+
+; ============================================================
 ; PRINT DECIMAL
 ;
 ; EAX = unsigned 32-bit integer
-;
-; Prints the value in decimal.
-;
-; Example:
-;
-;     EAX = 1234
-;
-; Output:
-;
-;     1234
 ; ============================================================
 
 shell_print_decimal:
-
-    ; --------------------------------------------------------
-    ; Special case: zero
-    ; --------------------------------------------------------
 
     cmp eax, 0
 
     jne shell_decimal_nonzero
 
     mov al, '0'
+
     call console_putc
 
     ret
@@ -541,21 +518,10 @@ shell_print_decimal:
 
 shell_decimal_nonzero:
 
-    ; --------------------------------------------------------
-    ; Preserve registers.
-    ; --------------------------------------------------------
-
     push eax
     push ebx
     push ecx
     push edx
-
-
-    ; --------------------------------------------------------
-    ; Use stack as a temporary digit buffer.
-    ;
-    ; Each decimal digit is pushed separately.
-    ; --------------------------------------------------------
 
     xor ecx, ecx
 
@@ -579,10 +545,6 @@ shell_decimal_convert:
     jne shell_decimal_convert
 
 
-    ; --------------------------------------------------------
-    ; Print digits in correct order.
-    ; --------------------------------------------------------
-
 shell_decimal_print:
 
     pop eax
@@ -590,11 +552,6 @@ shell_decimal_print:
     call console_putc
 
     loop shell_decimal_print
-
-
-    ; --------------------------------------------------------
-    ; Restore registers.
-    ; --------------------------------------------------------
 
     pop edx
     pop ecx
@@ -606,23 +563,11 @@ shell_decimal_print:
 
 ; ============================================================
 ; ECHO
-;
-; Syntax:
-;
-;   echo hello
-;   echo VertexOS
-;
-; "echohello" is not accepted.
 ; ============================================================
 
 shell_cmd_echo:
 
     call console_newline
-
-
-    ; --------------------------------------------------------
-    ; Find the space after "echo"
-    ; --------------------------------------------------------
 
     mov esi, shell_buffer
 
@@ -635,11 +580,9 @@ shell_echo_find_space:
 
     je shell_echo_empty
 
-
     cmp al, ' '
 
     je shell_echo_found_space
-
 
     inc esi
 
@@ -648,16 +591,7 @@ shell_echo_find_space:
 
 shell_echo_found_space:
 
-    ; --------------------------------------------------------
-    ; Skip the space
-    ; --------------------------------------------------------
-
     inc esi
-
-
-    ; --------------------------------------------------------
-    ; Print echo argument through console subsystem
-    ; --------------------------------------------------------
 
     call console_print
 
@@ -713,11 +647,9 @@ strings_equal_loop:
 
     jne strings_not_equal
 
-
     cmp al, 0
 
     je strings_equal_yes
-
 
     inc esi
 
@@ -746,28 +678,6 @@ strings_not_equal:
 
 ; ============================================================
 ; STRING_STARTS_WITH_ARGUMENT
-;
-; ESI = input string
-; EDI = command prefix
-;
-; Prefix must be followed by:
-;
-;   space
-;   or null terminator
-;
-; Examples:
-;
-;   echo hello -> match
-;   echo test  -> match
-;   echo       -> match
-;
-;   echohello  -> no match
-;   echoworld  -> no match
-;
-; Returns:
-;
-;   EAX = 1 -> match
-;   EAX = 0 -> no match
 ; ============================================================
 
 string_starts_with_argument:
@@ -783,16 +693,13 @@ string_argument_loop:
 
     je string_argument_prefix_done
 
-
     mov bl, [esi]
 
     cmp bl, al
 
     jne string_argument_no
 
-
     inc esi
-
     inc edi
 
     jmp string_argument_loop
@@ -800,26 +707,15 @@ string_argument_loop:
 
 string_argument_prefix_done:
 
-    ; --------------------------------------------------------
-    ; Prefix matched.
-    ;
-    ; Next character must be:
-    ;
-    ;   space
-    ;   or null
-    ; --------------------------------------------------------
-
     mov al, [esi]
 
     cmp al, ' '
 
     je string_argument_yes
 
-
     cmp al, 0
 
     je string_argument_yes
-
 
     jmp string_argument_no
 
@@ -844,59 +740,19 @@ string_argument_no:
 
 ; ============================================================
 ; SHELL PRINT PROMPT
-;
-; Synchronizes the keyboard driver's cursor with the Console.
-;
-; Prompt is drawn through the Console subsystem.
-;
-; Sequence:
-;
-;   1. Get console cursor
-;   2. Give cursor to keyboard driver
-;   3. Print "> "
-;   4. Get new console cursor
-;   5. Give new cursor to keyboard driver
-;
-; This keeps keyboard input and console output synchronized.
 ; ============================================================
 
 shell_print_prompt:
 
-    ; --------------------------------------------------------
-    ; Get current console cursor.
-    ; --------------------------------------------------------
-
     call console_get_cursor
 
-
-    ; --------------------------------------------------------
-    ; Tell keyboard driver where input begins.
-    ; --------------------------------------------------------
-
     call keyboard_set_cursor
-
-
-    ; --------------------------------------------------------
-    ; Print shell prompt through Console.
-    ; --------------------------------------------------------
 
     mov esi, prompt_text
 
     call console_print
 
-
-    ; --------------------------------------------------------
-    ; Get console cursor after prompt.
-    ; --------------------------------------------------------
-
     call console_get_cursor
-
-
-    ; --------------------------------------------------------
-    ; Synchronize keyboard driver again.
-    ;
-    ; Keyboard input will now begin immediately after "> ".
-    ; --------------------------------------------------------
 
     call keyboard_set_cursor
 
@@ -972,6 +828,11 @@ cmd_uptime:
     db "uptime", 0
 
 
+cmd_panic:
+
+    db "panic", 0
+
+
 cmd_echo:
 
     db "echo", 0
@@ -1035,6 +896,11 @@ help_line8:
     db "  uptime  - Show system uptime", 0
 
 
+help_line9:
+
+    db "  panic   - Trigger kernel panic", 0
+
+
 ; ============================================================
 ; TIME TEXT
 ; ============================================================
@@ -1052,6 +918,15 @@ uptime_label:
 seconds_label:
 
     db " seconds", 0
+
+
+; ============================================================
+; PANIC TEST
+; ============================================================
+
+manual_panic_reason:
+
+    db "Manual panic test", 0
 
 
 ; ============================================================

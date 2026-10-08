@@ -38,6 +38,8 @@ CONSOLE_OBJ = build/console.o
 TIME_SRC = kernel/time/time.asm
 TIME_OBJ = build/time.o
 
+PANIC_SRC = kernel/panic/panic.asm
+PANIC_OBJ = build/panic.o
 
 # ============================================================
 # KERNEL LIBRARY
@@ -97,6 +99,13 @@ $(KERNEL_OBJ): $(KERNEL_SRC)
 	mkdir -p build
 	$(ASM) -f elf32 $(KERNEL_SRC) -o $(KERNEL_OBJ)
 
+# ============================================================
+# KERNEL PANIC
+# ============================================================
+
+$(PANIC_OBJ): $(PANIC_SRC)
+	mkdir -p build
+	$(ASM) -f elf32 $(PANIC_SRC) -o $(PANIC_OBJ)
 
 # ============================================================
 # TIMEKEEPING
@@ -204,7 +213,8 @@ $(KERNEL_ELF): \
 	$(TIME_OBJ) \
 	$(STRING_OBJ) \
 	$(NUMBER_OBJ) \
-	$(LINKER_SCRIPT)
+	$(LINKER_SCRIPT) \
+        $(PANIC_OBJ)
 
 	$(LD) -m elf_i386 -T $(LINKER_SCRIPT) \
 		-o $(KERNEL_ELF) \
@@ -218,7 +228,8 @@ $(KERNEL_ELF): \
 		$(TIME_OBJ) \
 		$(CONSOLE_OBJ) \
 		$(STRING_OBJ) \
-		$(NUMBER_OBJ)
+		$(NUMBER_OBJ) \
+                $(PANIC_OBJ)
 
 
 # ============================================================
@@ -268,4 +279,5 @@ clean:
 		$(NUMBER_OBJ) \
 		$(KERNEL_ELF) \
 		$(KERNEL_BIN) \
-		$(OS_IMAGE)
+		$(OS_IMAGE) \
+                $(PANIC_OBJ)
