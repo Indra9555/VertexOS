@@ -29,6 +29,9 @@ EXCEPTIONS_OBJ = build/exceptions.o
 KEYBOARD_SRC = kernel/drivers/keyboard.asm
 KEYBOARD_OBJ = build/keyboard.o
 
+SERIAL_SRC = kernel/drivers/serial.asm
+SERIAL_OBJ = build/serial.o
+
 SHELL_SRC = kernel/shell/shell.asm
 SHELL_OBJ = build/shell.o
 
@@ -40,6 +43,7 @@ TIME_OBJ = build/time.o
 
 PANIC_SRC = kernel/panic/panic.asm
 PANIC_OBJ = build/panic.o
+
 
 # ============================================================
 # KERNEL LIBRARY
@@ -99,6 +103,7 @@ $(KERNEL_OBJ): $(KERNEL_SRC)
 	mkdir -p build
 	$(ASM) -f elf32 $(KERNEL_SRC) -o $(KERNEL_OBJ)
 
+
 # ============================================================
 # KERNEL PANIC
 # ============================================================
@@ -106,6 +111,7 @@ $(KERNEL_OBJ): $(KERNEL_SRC)
 $(PANIC_OBJ): $(PANIC_SRC)
 	mkdir -p build
 	$(ASM) -f elf32 $(PANIC_SRC) -o $(PANIC_OBJ)
+
 
 # ============================================================
 # TIMEKEEPING
@@ -180,6 +186,15 @@ $(KEYBOARD_OBJ): $(KEYBOARD_SRC)
 
 
 # ============================================================
+# SERIAL DRIVER
+# ============================================================
+
+$(SERIAL_OBJ): $(SERIAL_SRC)
+	mkdir -p build
+	$(ASM) -f elf32 $(SERIAL_SRC) -o $(SERIAL_OBJ)
+
+
+# ============================================================
 # SHELL
 # ============================================================
 
@@ -208,13 +223,14 @@ $(KERNEL_ELF): \
 	$(TIMER_OBJ) \
 	$(EXCEPTIONS_OBJ) \
 	$(KEYBOARD_OBJ) \
+	$(SERIAL_OBJ) \
 	$(SHELL_OBJ) \
 	$(CONSOLE_OBJ) \
 	$(TIME_OBJ) \
 	$(STRING_OBJ) \
 	$(NUMBER_OBJ) \
-	$(LINKER_SCRIPT) \
-        $(PANIC_OBJ)
+	$(PANIC_OBJ) \
+	$(LINKER_SCRIPT)
 
 	$(LD) -m elf_i386 -T $(LINKER_SCRIPT) \
 		-o $(KERNEL_ELF) \
@@ -224,12 +240,13 @@ $(KERNEL_ELF): \
 		$(TIMER_OBJ) \
 		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
+		$(SERIAL_OBJ) \
 		$(SHELL_OBJ) \
 		$(TIME_OBJ) \
 		$(CONSOLE_OBJ) \
 		$(STRING_OBJ) \
 		$(NUMBER_OBJ) \
-                $(PANIC_OBJ)
+		$(PANIC_OBJ)
 
 
 # ============================================================
@@ -257,7 +274,7 @@ image: $(OS_IMAGE)
 # ============================================================
 
 run: image
-	$(QEMU) -drive format=raw,file=$(OS_IMAGE)
+	$(QEMU) -drive format=raw,file=$(OS_IMAGE) -serial stdio
 
 
 # ============================================================
@@ -272,12 +289,13 @@ clean:
 		$(TIMER_OBJ) \
 		$(EXCEPTIONS_OBJ) \
 		$(KEYBOARD_OBJ) \
+		$(SERIAL_OBJ) \
 		$(SHELL_OBJ) \
 		$(CONSOLE_OBJ) \
 		$(TIME_OBJ) \
 		$(STRING_OBJ) \
 		$(NUMBER_OBJ) \
+		$(PANIC_OBJ) \
 		$(KERNEL_ELF) \
 		$(KERNEL_BIN) \
-		$(OS_IMAGE) \
-                $(PANIC_OBJ)
+		$(OS_IMAGE)
