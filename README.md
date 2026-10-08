@@ -457,7 +457,7 @@ VertexOS.img
 Clone the repository and enter the project:
 
 ```bash
-git clone <repository-url>
+git clone <https://github.com/Indra9555/VertexOS.git>
 cd VertexOS
 ```
 
