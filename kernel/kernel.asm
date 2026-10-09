@@ -4,6 +4,9 @@
 
 global kernel_start
 
+extern __bss_start
+extern __bss_end
+
 extern console_init
 extern console_print
 extern console_newline
@@ -27,8 +30,26 @@ extern shell_update
 
 kernel_start:
     cli
+    cld
 
-    ; Capture bootloader handoff.
+    ; Preserve the bootloader handoff values.
+    push eax
+    push ebx
+    push ecx
+
+    ; Clear BSS before using zero-initialized variables.
+    mov edi, __bss_start
+    mov ecx, __bss_end
+    sub ecx, edi
+    xor eax, eax
+    rep stosb
+
+    ; Restore the bootloader handoff values.
+    pop ecx
+    pop ebx
+    pop eax
+
+    ; Store the handoff values after clearing BSS.
     mov [boot_magic], eax
     mov [e820_buffer], ebx
     mov [e820_count], ecx
@@ -139,7 +160,7 @@ e820_print_done:
     mov esi, serial_newline
     call serial_print
 
-    ; Existing VGA console output.
+    ; Initialize the VGA console.
     mov esi, title_msg
     call console_print
     call console_newline
@@ -152,7 +173,7 @@ e820_print_done:
     call console_print
     call console_newline
 
-    ; Existing interrupt and timing initialization.
+    ; Initialize interrupts and timing.
     call idt_init
     call pic_init
     call timer_init
@@ -163,6 +184,7 @@ e820_print_done:
     and al, 0xFC
     out 0x21, al
 
+    ; Initialize the shell and display its prompt.
     call shell_init
     call shell_print_initial_prompt
 
