@@ -1,6 +1,8 @@
 [bits 16]
 [org 0x7C00]
 
+%define BOOT_DRIVE_HANDOFF 0x4FE0
+
 start:
     cli
 
@@ -11,59 +13,36 @@ start:
     mov sp, 0x7C00
 
     mov [boot_drive], dl
+    mov [BOOT_DRIVE_HANDOFF], dl
 
     sti
 
     mov si, boot_msg
     call print_string
 
-
-    ; ========================================================
-    ; Load kernel from disk
-    ;
-    ; Boot sector = sector 1
-    ; Kernel starts at sector 2
-    ;
-    ; 32 sectors × 512 bytes = 16384 bytes
-    ;
-    ; Kernel is loaded at physical address 0x1000.
-    ; ========================================================
-
-    mov ah, 0x02
-    mov al, 32
-    mov ch, 0
-    mov cl, 2
-    mov dh, 0
+    ; Check BIOS extended disk support.
+    mov ah, 0x41
+    mov bx, 0x55AA
     mov dl, [boot_drive]
-
-    mov bx, 0x1000
-
     int 0x13
-
     jc disk_error
 
+    cmp bx, 0xAA55
+    jne disk_error
 
-    ; ========================================================
-    ; Enter 32-bit protected mode
-    ; ========================================================
+    test cx, 1
+    jz disk_error
 
-    cli
+    ; Load stage 2 from LBA 1 to physical 0x8000.
+    mov si, boot_dap
+    mov dl, [boot_drive]
+    mov ah, 0x42
+    int 0x13
+    jc disk_error
 
-    lgdt [gdt_descriptor]
-
-    mov eax, cr0
-    or eax, 0x01
-    mov cr0, eax
-
-    jmp 0x08:protected_mode
-
-
-; ============================================================
-; Disk read error
-; ============================================================
+    jmp 0x0000:0x8000
 
 disk_error:
-
     mov si, error_msg
     call print_string
 
@@ -72,91 +51,37 @@ disk_error:
     hlt
     jmp .hang
 
-
-; ============================================================
-; BIOS text output
-; ============================================================
-
 print_string:
-
     lodsb
-
     test al, al
     jz .done
 
     mov ah, 0x0E
-    mov bh, 0x00
+    mov bh, 0
     mov bl, 0x07
-
     int 0x10
-
     jmp print_string
 
 .done:
     ret
 
-
-; ============================================================
-; 32-bit protected mode
-; ============================================================
-
-[bits 32]
-
-protected_mode:
-
-    mov ax, 0x10
-
-    mov ds, ax
-    mov es, ax
-    mov ss, ax
-
-    mov esp, 0x90000
-
-    jmp 0x08:0x1000
-
-
-; ============================================================
-; Boot data
-; ============================================================
-
-boot_drive db 0
+boot_drive:
+    db 0
 
 boot_msg:
-    db "Welcome to VertexOS!", 13, 10, 0
+    db "VertexOS: Loading stage 2...", 13, 10, 0
 
 error_msg:
-    db "Disk read error!", 13, 10, 0
+    db "VertexOS: Boot disk error!", 13, 10, 0
 
+align 4
 
-; ============================================================
-; Global Descriptor Table
-; ============================================================
-
-align 8
-
-gdt_start:
-
-    dq 0
-
-    ; Code segment
-    dq 0x00CF9A000000FFFF
-
-    ; Data segment
-    dq 0x00CF92000000FFFF
-
-gdt_end:
-
-
-gdt_descriptor:
-
-    dw gdt_end - gdt_start - 1
-    dd gdt_start
-
-
-; ============================================================
-; Boot sector signature
-; ============================================================
+boot_dap:
+    db 0x10, 0
+    dw 4
+    dw 0x8000
+    dw 0
+    dq 1
 
 times 510 - ($ - $$) db 0
-
 dw 0xAA55

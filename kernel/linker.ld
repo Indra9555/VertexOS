@@ -1,3 +1,4 @@
+
 OUTPUT_FORMAT("elf32-i386")
 OUTPUT_ARCH(i386)
 ENTRY(kernel_start)
@@ -5,25 +6,45 @@ ENTRY(kernel_start)
 SECTIONS
 {
     . = 0x1000;
+    __kernel_start = .;
 
-    .text :
+    .text ALIGN(16) :
     {
-        *(.text)
+        __text_start = .;
+        *(.text .text.*)
+        __text_end = .;
     }
 
-    .rodata :
+    .rodata ALIGN(16) :
     {
-        *(.rodata)
+        __rodata_start = .;
+        *(.rodata .rodata.*)
+        __rodata_end = .;
     }
 
-    .data :
+    .data ALIGN(16) :
     {
-        *(.data)
+        __data_start = .;
+        *(.data .data.*)
+        __data_end = .;
     }
 
-    .bss :
+    .bss ALIGN(16) (NOLOAD) :
     {
+        __bss_start = .;
         *(COMMON)
-        *(.bss)
+        *(.bss .bss.*)
+        . = ALIGN(16);
+        __bss_end = .;
+    }
+
+    . = ALIGN(4096);
+    __kernel_end = .;
+
+    /DISCARD/ :
+    {
+        *(.comment)
+        *(.note*)
+        *(.eh_frame*)
     }
 }

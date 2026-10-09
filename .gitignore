@@ -1,4 +1,1 @@
-build/*.bin
-build/*.img
-build/*.o
-build/*.elf
+build/
