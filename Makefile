@@ -14,7 +14,8 @@ STAGE2_SIZE = 2048
 KERNEL_SOURCES = \
 	kernel/kernel.asm \
 	kernel/memory/pmm.asm \
-	kernel/console/console.asm \
+        kernel/memory/heap.asm \
+        kernel/console/console.asm \
 	kernel/drivers/keyboard.asm \
 	kernel/drivers/serial.asm \
 	kernel/interrupts/idt.asm \
