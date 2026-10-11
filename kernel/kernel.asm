@@ -23,7 +23,6 @@ extern pmm_get_free_pages
 
 extern idt_init
 extern pic_init
-
 extern timer_init
 extern time_init
 
@@ -32,6 +31,8 @@ extern keyboard_set_cursor
 
 extern shell_init
 extern shell_update
+
+%define PMM_MAX_MEMORY 0x08000000
 
 kernel_start:
     cli
@@ -49,12 +50,11 @@ kernel_start:
     xor eax, eax
     rep stosb
 
-    ; Restore bootloader handoff values.
+    ; Restore handoff values.
     pop ecx
     pop ebx
     pop eax
 
-    ; Save the handoff values.
     mov [boot_magic], eax
     mov [e820_buffer], ebx
     mov [e820_count], ecx
@@ -62,7 +62,7 @@ kernel_start:
     call console_init
     call serial_init
 
-    ; Print boot magic.
+    ; Print and validate boot handoff.
     mov esi, handoff_msg
     call serial_print
     mov eax, [boot_magic]
@@ -70,7 +70,6 @@ kernel_start:
     mov esi, serial_newline
     call serial_print
 
-    ; Validate handoff metadata.
     cmp dword [boot_magic], 0x564F534D
     jne boot_handoff_failed
 
@@ -91,7 +90,6 @@ kernel_start:
     mov esi, serial_newline
     call serial_print
 
-    ; Initialize E820 iteration state.
     mov dword [e820_index], 0
     mov dword [e820_entry_ptr], 0x9100
 
@@ -100,32 +98,27 @@ e820_print_loop:
     cmp eax, [e820_count]
     jae e820_print_done
 
-    ; Entry number.
     mov esi, e820_entry_msg
     call serial_print
     mov eax, [e820_index]
     call serial_write_hex
 
-    ; 64-bit base address: high word, then low word.
+    ; Base address, high then low.
     mov esi, e820_base_msg
     call serial_print
-
     mov esi, [e820_entry_ptr]
     mov eax, [esi + 4]
     call serial_write_hex
-
     mov esi, [e820_entry_ptr]
     mov eax, [esi]
     call serial_write_hex
 
-    ; 64-bit region length: high word, then low word.
+    ; Region length, high then low.
     mov esi, e820_length_msg
     call serial_print
-
     mov esi, [e820_entry_ptr]
     mov eax, [esi + 12]
     call serial_write_hex
-
     mov esi, [e820_entry_ptr]
     mov eax, [esi + 8]
     call serial_write_hex
@@ -133,7 +126,6 @@ e820_print_loop:
     ; Memory type.
     mov esi, e820_type_msg
     call serial_print
-
     mov esi, [e820_entry_ptr]
     mov eax, [esi + 16]
     call serial_write_hex
@@ -141,7 +133,6 @@ e820_print_loop:
     ; Extended attributes.
     mov esi, e820_attr_msg
     call serial_print
-
     mov esi, [e820_entry_ptr]
     mov eax, [esi + 20]
     call serial_write_hex
@@ -149,7 +140,6 @@ e820_print_loop:
     mov esi, serial_newline
     call serial_print
 
-    ; Advance to the next 24-byte entry.
     add dword [e820_entry_ptr], 24
     inc dword [e820_index]
     jmp e820_print_loop
@@ -158,7 +148,6 @@ e820_print_done:
     mov esi, e820_ok_msg
     call serial_print
 
-    ; Existing serial test.
     mov esi, serial_test_msg
     call serial_print
     mov eax, 0x1234ABCD
@@ -167,72 +156,186 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
-    ; Physical Memory Manager initialization and self-test.
+    ; Initialize the Physical Memory Manager.
     ; ========================================================
 
     mov esi, pmm_init_msg
     call serial_print
 
-    ; pmm_init input:
-    ; EAX = E820 map pointer
-    ; EBX = E820 entry count
     mov eax, [e820_buffer]
     mov ebx, [e820_count]
     call pmm_init
 
-    ; Record the initial free-page count.
     call pmm_get_free_pages
     mov [pmm_initial_free_pages], eax
 
-    mov esi, pmm_free_initial_msg
+    mov esi, pmm_initial_msg
     call serial_print
     mov eax, [pmm_initial_free_pages]
     call serial_write_hex
     mov esi, serial_newline
     call serial_print
 
-    ; Allocate one physical page.
+    ; ========================================================
+    ; Test 1: Allocate one page.
+    ; ========================================================
+
     call pmm_alloc_page
     test eax, eax
     jz pmm_alloc_failed
 
-    mov [pmm_test_page], eax
+    mov [pmm_page_a], eax
 
     mov esi, pmm_alloc_msg
     call serial_print
-    mov eax, [pmm_test_page]
+    mov eax, [pmm_page_a]
     call serial_write_hex
     mov esi, serial_newline
     call serial_print
 
-    ; Free the allocated page.
-    mov eax, [pmm_test_page]
+    ; ========================================================
+    ; Test 2: Reject an unaligned free.
+    ; Freeing page_address + 1 must fail.
+    ; ========================================================
+
+    mov eax, [pmm_page_a]
+    inc eax
+    call pmm_free_page
+
+    test eax, eax
+    jnz pmm_invalid_free_failed
+
+    ; The page remains allocated: free count = initial - 1.
+    call pmm_get_free_pages
+    mov edx, [pmm_initial_free_pages]
+    dec edx
+    cmp eax, edx
+    jne pmm_count_failed
+
+    mov esi, pmm_invalid_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Test 3: Reject a free at the exclusive 128 MiB limit.
+    ; ========================================================
+
+    mov eax, PMM_MAX_MEMORY
+    call pmm_free_page
+
+    test eax, eax
+    jnz pmm_invalid_free_failed
+
+    call pmm_get_free_pages
+    cmp eax, edx
+    jne pmm_count_failed
+
+    mov esi, pmm_range_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Test 4: Free the real page successfully.
+    ; ========================================================
+
+    mov eax, [pmm_page_a]
+    call pmm_free_page
+
+    cmp eax, 1
+    jne pmm_free_failed
+
+    ; ========================================================
+    ; Test 5: Reject a double free.
+    ; ========================================================
+
+    mov eax, [pmm_page_a]
+    call pmm_free_page
+
+    test eax, eax
+    jnz pmm_double_free_failed
+
+    call pmm_get_free_pages
+    cmp eax, [pmm_initial_free_pages]
+    jne pmm_count_failed
+
+    mov esi, pmm_double_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Test 6: Allocate three distinct physical pages.
+    ; ========================================================
+
+    call pmm_alloc_page
+    test eax, eax
+    jz pmm_alloc_failed
+    mov [pmm_page_a], eax
+
+    call pmm_alloc_page
+    test eax, eax
+    jz pmm_alloc_failed
+    mov [pmm_page_b], eax
+
+    call pmm_alloc_page
+    test eax, eax
+    jz pmm_alloc_failed
+    mov [pmm_page_c], eax
+
+    ; A, B, and C must all differ.
+    mov eax, [pmm_page_a]
+    cmp eax, [pmm_page_b]
+    je pmm_duplicate_page_failed
+
+    cmp eax, [pmm_page_c]
+    je pmm_duplicate_page_failed
+
+    mov eax, [pmm_page_b]
+    cmp eax, [pmm_page_c]
+    je pmm_duplicate_page_failed
+
+    ; Verify the free count decreased by three.
+    call pmm_get_free_pages
+    mov edx, [pmm_initial_free_pages]
+    sub edx, 3
+    cmp eax, edx
+    jne pmm_count_failed
+
+    mov esi, pmm_multi_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Test 7: Free all three pages.
+    ; ========================================================
+
+    mov eax, [pmm_page_a]
     call pmm_free_page
     cmp eax, 1
     jne pmm_free_failed
 
-    mov esi, pmm_free_ok_msg
-    call serial_print
+    mov eax, [pmm_page_b]
+    call pmm_free_page
+    cmp eax, 1
+    jne pmm_free_failed
 
-    ; Check the free-page count after freeing.
-    call pmm_get_free_pages
+    mov eax, [pmm_page_c]
+    call pmm_free_page
+    cmp eax, 1
+    jne pmm_free_failed
 
-    mov esi, pmm_free_final_msg
-    call serial_print
-    call serial_write_hex
-    mov esi, serial_newline
-    call serial_print
-
-    ; Allocation followed by freeing must restore the count.
+    ; Verify the original count is restored.
     call pmm_get_free_pages
     cmp eax, [pmm_initial_free_pages]
     jne pmm_count_failed
+
+    mov esi, pmm_final_msg
+    call serial_print
+    mov eax, [pmm_initial_free_pages]
+    call serial_write_hex
+    mov esi, serial_newline
+    call serial_print
 
     mov esi, pmm_test_pass_msg
     call serial_print
 
     ; ========================================================
-    ; Existing VGA console and system initialization.
+    ; Existing VGA console, interrupts, timer, and shell.
     ; ========================================================
 
     mov esi, title_msg
@@ -247,7 +350,6 @@ e820_print_done:
     call console_print
     call console_newline
 
-    ; Initialize interrupts and timing.
     call idt_init
     call pic_init
     call timer_init
@@ -258,7 +360,6 @@ e820_print_done:
     and al, 0xFC
     out 0x21, al
 
-    ; Initialize the shell and display its prompt.
     call shell_init
     call shell_print_initial_prompt
 
@@ -297,11 +398,28 @@ pmm_free_failed:
     call serial_print
     jmp failure_hang
 
+pmm_invalid_free_failed:
+    cli
+    mov esi, pmm_invalid_error_msg
+    call serial_print
+    jmp failure_hang
+
+pmm_double_free_failed:
+    cli
+    mov esi, pmm_double_error_msg
+    call serial_print
+    jmp failure_hang
+
+pmm_duplicate_page_failed:
+    cli
+    mov esi, pmm_duplicate_error_msg
+    call serial_print
+    jmp failure_hang
+
 pmm_count_failed:
     cli
     mov esi, pmm_count_error_msg
     call serial_print
-    jmp failure_hang
 
 failure_hang:
     hlt
@@ -350,22 +468,31 @@ serial_test_msg:
     db "[SERIAL] COM1 initialized. Test value: 0x", 0
 
 pmm_init_msg:
-    db "[PMM] Initializing physical memory manager...", 13, 10, 0
+    db "[PMM] Initializing physical memory manager.", 13, 10, 0
 
-pmm_free_initial_msg:
+pmm_initial_msg:
     db "[PMM] Initial free pages: 0x", 0
 
 pmm_alloc_msg:
-    db "[PMM] Allocated physical page at: 0x", 0
+    db "[PMM] Allocated physical page: 0x", 0
 
-pmm_free_ok_msg:
-    db "[PMM] Page freed successfully.", 13, 10, 0
+pmm_invalid_pass_msg:
+    db "[PMM TEST] Unaligned free rejected: PASS", 13, 10, 0
 
-pmm_free_final_msg:
-    db "[PMM] Free pages after test: 0x", 0
+pmm_range_pass_msg:
+    db "[PMM TEST] Out-of-range free rejected: PASS", 13, 10, 0
+
+pmm_double_pass_msg:
+    db "[PMM TEST] Double free rejected: PASS", 13, 10, 0
+
+pmm_multi_pass_msg:
+    db "[PMM TEST] Three distinct pages allocated: PASS", 13, 10, 0
+
+pmm_final_msg:
+    db "[PMM] Final free-page count: 0x", 0
 
 pmm_test_pass_msg:
-    db "[PMM] Allocation/free test PASSED.", 13, 10, 0
+    db "[PMM] All regression tests PASSED.", 13, 10, 0
 
 pmm_alloc_error_msg:
     db "[PMM ERROR] Physical page allocation failed.", 13, 10, 0
@@ -373,8 +500,17 @@ pmm_alloc_error_msg:
 pmm_free_error_msg:
     db "[PMM ERROR] Physical page free failed.", 13, 10, 0
 
+pmm_invalid_error_msg:
+    db "[PMM ERROR] Invalid free was incorrectly accepted.", 13, 10, 0
+
+pmm_double_error_msg:
+    db "[PMM ERROR] Double free was incorrectly accepted.", 13, 10, 0
+
+pmm_duplicate_error_msg:
+    db "[PMM ERROR] Allocator returned duplicate pages.", 13, 10, 0
+
 pmm_count_error_msg:
-    db "[PMM ERROR] Free-page count was not restored.", 13, 10, 0
+    db "[PMM ERROR] Free-page count mismatch.", 13, 10, 0
 
 serial_newline:
     db 13, 10, 0
@@ -401,5 +537,11 @@ e820_entry_ptr:
 pmm_initial_free_pages:
     resd 1
 
-pmm_test_page:
+pmm_page_a:
+    resd 1
+
+pmm_page_b:
+    resd 1
+
+pmm_page_c:
     resd 1
