@@ -16,6 +16,11 @@ extern serial_init
 extern serial_print
 extern serial_write_hex
 
+extern pmm_init
+extern pmm_alloc_page
+extern pmm_free_page
+extern pmm_get_free_pages
+
 extern idt_init
 extern pic_init
 
@@ -32,7 +37,7 @@ kernel_start:
     cli
     cld
 
-    ; Preserve the bootloader handoff values.
+    ; Preserve bootloader handoff values.
     push eax
     push ebx
     push ecx
@@ -44,12 +49,12 @@ kernel_start:
     xor eax, eax
     rep stosb
 
-    ; Restore the bootloader handoff values.
+    ; Restore bootloader handoff values.
     pop ecx
     pop ebx
     pop eax
 
-    ; Store the handoff values after clearing BSS.
+    ; Save the handoff values.
     mov [boot_magic], eax
     mov [e820_buffer], ebx
     mov [e820_count], ecx
@@ -144,7 +149,7 @@ e820_print_loop:
     mov esi, serial_newline
     call serial_print
 
-    ; Move to the next 24-byte entry.
+    ; Advance to the next 24-byte entry.
     add dword [e820_entry_ptr], 24
     inc dword [e820_index]
     jmp e820_print_loop
@@ -153,6 +158,7 @@ e820_print_done:
     mov esi, e820_ok_msg
     call serial_print
 
+    ; Existing serial test.
     mov esi, serial_test_msg
     call serial_print
     mov eax, 0x1234ABCD
@@ -160,7 +166,75 @@ e820_print_done:
     mov esi, serial_newline
     call serial_print
 
-    ; Initialize the VGA console.
+    ; ========================================================
+    ; Physical Memory Manager initialization and self-test.
+    ; ========================================================
+
+    mov esi, pmm_init_msg
+    call serial_print
+
+    ; pmm_init input:
+    ; EAX = E820 map pointer
+    ; EBX = E820 entry count
+    mov eax, [e820_buffer]
+    mov ebx, [e820_count]
+    call pmm_init
+
+    ; Record the initial free-page count.
+    call pmm_get_free_pages
+    mov [pmm_initial_free_pages], eax
+
+    mov esi, pmm_free_initial_msg
+    call serial_print
+    mov eax, [pmm_initial_free_pages]
+    call serial_write_hex
+    mov esi, serial_newline
+    call serial_print
+
+    ; Allocate one physical page.
+    call pmm_alloc_page
+    test eax, eax
+    jz pmm_alloc_failed
+
+    mov [pmm_test_page], eax
+
+    mov esi, pmm_alloc_msg
+    call serial_print
+    mov eax, [pmm_test_page]
+    call serial_write_hex
+    mov esi, serial_newline
+    call serial_print
+
+    ; Free the allocated page.
+    mov eax, [pmm_test_page]
+    call pmm_free_page
+    cmp eax, 1
+    jne pmm_free_failed
+
+    mov esi, pmm_free_ok_msg
+    call serial_print
+
+    ; Check the free-page count after freeing.
+    call pmm_get_free_pages
+
+    mov esi, pmm_free_final_msg
+    call serial_print
+    call serial_write_hex
+    mov esi, serial_newline
+    call serial_print
+
+    ; Allocation followed by freeing must restore the count.
+    call pmm_get_free_pages
+    cmp eax, [pmm_initial_free_pages]
+    jne pmm_count_failed
+
+    mov esi, pmm_test_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Existing VGA console and system initialization.
+    ; ========================================================
+
     mov esi, title_msg
     call console_print
     call console_newline
@@ -201,16 +275,40 @@ shell_print_initial_prompt:
     call keyboard_print_prompt
     ret
 
+; ============================================================
+; Failure handlers
+; ============================================================
+
 boot_handoff_failed:
     cli
     mov esi, handoff_error_msg
     call serial_print
+    jmp failure_hang
 
-boot_handoff_hang:
+pmm_alloc_failed:
+    cli
+    mov esi, pmm_alloc_error_msg
+    call serial_print
+    jmp failure_hang
+
+pmm_free_failed:
+    cli
+    mov esi, pmm_free_error_msg
+    call serial_print
+    jmp failure_hang
+
+pmm_count_failed:
+    cli
+    mov esi, pmm_count_error_msg
+    call serial_print
+    jmp failure_hang
+
+failure_hang:
     hlt
-    jmp boot_handoff_hang
+    jmp failure_hang
 
-section .data
+
+[section .data]
 
 title_msg:
     db "VertexOS - Protected Mode Kernel", 0
@@ -251,12 +349,40 @@ handoff_error_msg:
 serial_test_msg:
     db "[SERIAL] COM1 initialized. Test value: 0x", 0
 
+pmm_init_msg:
+    db "[PMM] Initializing physical memory manager...", 13, 10, 0
+
+pmm_free_initial_msg:
+    db "[PMM] Initial free pages: 0x", 0
+
+pmm_alloc_msg:
+    db "[PMM] Allocated physical page at: 0x", 0
+
+pmm_free_ok_msg:
+    db "[PMM] Page freed successfully.", 13, 10, 0
+
+pmm_free_final_msg:
+    db "[PMM] Free pages after test: 0x", 0
+
+pmm_test_pass_msg:
+    db "[PMM] Allocation/free test PASSED.", 13, 10, 0
+
+pmm_alloc_error_msg:
+    db "[PMM ERROR] Physical page allocation failed.", 13, 10, 0
+
+pmm_free_error_msg:
+    db "[PMM ERROR] Physical page free failed.", 13, 10, 0
+
+pmm_count_error_msg:
+    db "[PMM ERROR] Free-page count was not restored.", 13, 10, 0
+
 serial_newline:
     db 13, 10, 0
 
-section .bss
 
-align 4
+[section .bss]
+
+alignb 4
 boot_magic:
     resd 1
 
@@ -270,4 +396,10 @@ e820_index:
     resd 1
 
 e820_entry_ptr:
+    resd 1
+
+pmm_initial_free_pages:
+    resd 1
+
+pmm_test_page:
     resd 1
