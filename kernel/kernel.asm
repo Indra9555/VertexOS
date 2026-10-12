@@ -538,6 +538,25 @@ e820_print_done:
     test eax, eax
     jnz heap_test_failed
 
+    ; An oversized request must fail without consuming a page.
+    ; 4081 bytes + 16-byte header exceeds the 4096-byte limit.
+    call pmm_get_free_pages
+    push eax
+
+    mov eax, 4081
+    call kmalloc
+    mov ebx, eax
+
+    ; Compare PMM free-page counts before and after the request.
+    call pmm_get_free_pages
+    pop edx
+
+    test ebx, ebx
+    jnz heap_test_failed
+
+    cmp eax, edx
+    jne heap_test_failed
+
     ; kfree(NULL) must fail.
     xor eax, eax
     call kfree
