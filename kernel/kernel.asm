@@ -586,6 +586,68 @@ e820_print_done:
     mov esi, heap_invalid_pass_msg
     call serial_print
 
+    ; ========================================================
+    ; Heap Test 8: Force allocation from a second heap page.
+    ; Keep the first 3000-byte allocation alive so the second
+    ; allocation cannot fit in the remaining space of page 1.
+    ; ========================================================
+
+    mov eax, 3000
+    call kmalloc
+    test eax, eax
+    jz heap_growth_failed
+    mov [heap_ptr_a], eax
+
+    mov eax, 3000
+    call kmalloc
+    test eax, eax
+    jz heap_growth_failed
+    mov [heap_ptr_b], eax
+
+    ; Both allocations must be distinct.
+    mov eax, [heap_ptr_a]
+    cmp eax, [heap_ptr_b]
+    je heap_growth_failed
+
+    ; Their page-aligned addresses must be different.
+    and eax, 0xFFFFF000
+    mov edx, eax
+
+    mov eax, [heap_ptr_b]
+    and eax, 0xFFFFF000
+    cmp eax, edx
+    je heap_growth_failed
+
+    ; Free the second region first, then the first region.
+    mov eax, [heap_ptr_b]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov eax, [heap_ptr_a]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov esi, heap_growth_pass_msg
+    call serial_print
+
+    ; The first region should be reusable after coalescing.
+    mov eax, 3000
+    call kmalloc
+    test eax, eax
+    jz heap_growth_failed
+
+    cmp eax, [heap_ptr_a]
+    jne heap_growth_failed
+
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov esi, heap_growth_reuse_pass_msg
+    call serial_print
+
     mov esi, heap_test_pass_msg
     call serial_print
 
@@ -710,6 +772,12 @@ heap_reuse_failed:
 heap_coalesce_failed:
     cli
     mov esi, heap_coalesce_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_growth_failed:
+    cli
+    mov esi, heap_growth_error_msg
     call serial_print
     jmp failure_hang
 
@@ -859,6 +927,15 @@ heap_coalesce_error_msg:
 
 heap_test_error_msg:
     db "[HEAP ERROR] Allocation pointers are not distinct.", 13, 10, 0
+
+heap_growth_pass_msg:
+    db "[HEAP TEST] Multi-page growth and independent frees: PASS", 13, 10, 0
+
+heap_growth_reuse_pass_msg:
+    db "[HEAP TEST] Multi-page freed region reused: PASS", 13, 10, 0
+
+heap_growth_error_msg:
+    db "[HEAP ERROR] Multi-page growth or reuse failed.", 13, 10, 0
 
 serial_newline:
     db 13, 10, 0
