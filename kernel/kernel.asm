@@ -21,6 +21,10 @@ extern pmm_alloc_page
 extern pmm_free_page
 extern pmm_get_free_pages
 
+extern heap_init
+extern kmalloc
+extern kfree
+
 extern idt_init
 extern pic_init
 extern timer_init
@@ -177,7 +181,7 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
-    ; Test 1: Allocate one page.
+    ; PMM Test 1: Allocate one page.
     ; ========================================================
 
     call pmm_alloc_page
@@ -194,8 +198,7 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
-    ; Test 2: Reject an unaligned free.
-    ; Freeing page_address + 1 must fail.
+    ; PMM Test 2: Reject an unaligned free.
     ; ========================================================
 
     mov eax, [pmm_page_a]
@@ -205,7 +208,6 @@ e820_print_done:
     test eax, eax
     jnz pmm_invalid_free_failed
 
-    ; The page remains allocated: free count = initial - 1.
     call pmm_get_free_pages
     mov edx, [pmm_initial_free_pages]
     dec edx
@@ -216,7 +218,7 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
-    ; Test 3: Reject a free at the exclusive 128 MiB limit.
+    ; PMM Test 3: Reject the exclusive 128 MiB limit.
     ; ========================================================
 
     mov eax, PMM_MAX_MEMORY
@@ -233,7 +235,7 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
-    ; Test 4: Free the real page successfully.
+    ; PMM Test 4: Free the real page successfully.
     ; ========================================================
 
     mov eax, [pmm_page_a]
@@ -243,7 +245,7 @@ e820_print_done:
     jne pmm_free_failed
 
     ; ========================================================
-    ; Test 5: Reject a double free.
+    ; PMM Test 5: Reject a double free.
     ; ========================================================
 
     mov eax, [pmm_page_a]
@@ -260,7 +262,7 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
-    ; Test 6: Allocate three distinct physical pages.
+    ; PMM Test 6: Allocate three distinct physical pages.
     ; ========================================================
 
     call pmm_alloc_page
@@ -278,7 +280,6 @@ e820_print_done:
     jz pmm_alloc_failed
     mov [pmm_page_c], eax
 
-    ; A, B, and C must all differ.
     mov eax, [pmm_page_a]
     cmp eax, [pmm_page_b]
     je pmm_duplicate_page_failed
@@ -290,7 +291,6 @@ e820_print_done:
     cmp eax, [pmm_page_c]
     je pmm_duplicate_page_failed
 
-    ; Verify the free count decreased by three.
     call pmm_get_free_pages
     mov edx, [pmm_initial_free_pages]
     sub edx, 3
@@ -301,7 +301,7 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
-    ; Test 7: Free all three pages.
+    ; PMM Test 7: Free all three pages.
     ; ========================================================
 
     mov eax, [pmm_page_a]
@@ -319,7 +319,6 @@ e820_print_done:
     cmp eax, 1
     jne pmm_free_failed
 
-    ; Verify the original count is restored.
     call pmm_get_free_pages
     cmp eax, [pmm_initial_free_pages]
     jne pmm_count_failed
@@ -332,6 +331,197 @@ e820_print_done:
     call serial_print
 
     mov esi, pmm_test_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Heap Test 1: Initialize the heap.
+    ; ========================================================
+
+    mov esi, heap_init_msg
+    call serial_print
+
+    call heap_init
+    cmp eax, 1
+    jne heap_init_failed
+
+    mov esi, heap_init_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Heap Test 2: Allocate three differently sized blocks.
+    ; ========================================================
+
+    mov eax, 32
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_a], eax
+
+    mov eax, 64
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_b], eax
+
+    mov eax, 96
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_c], eax
+
+    ; Allocated payload pointers must be distinct.
+    mov eax, [heap_ptr_a]
+    cmp eax, [heap_ptr_b]
+    je heap_test_failed
+
+    cmp eax, [heap_ptr_c]
+    je heap_test_failed
+
+    mov eax, [heap_ptr_b]
+    cmp eax, [heap_ptr_c]
+    je heap_test_failed
+
+    mov esi, heap_alloc_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Heap Test 3: Free B and reject a double free.
+    ; ========================================================
+
+    mov eax, [heap_ptr_b]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov eax, [heap_ptr_b]
+    call kfree
+    test eax, eax
+    jnz heap_double_free_failed
+
+    mov esi, heap_double_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Heap Test 4: Reuse the freed B block.
+    ; A 48-byte request fits into B's 80-byte block,
+    ; but cannot split it into two usable blocks.
+    ; ========================================================
+
+    mov eax, 48
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+
+    mov [heap_ptr_d], eax
+
+    cmp eax, [heap_ptr_b]
+    jne heap_reuse_failed
+
+    mov esi, heap_reuse_pass_msg
+    call serial_print
+
+    ; Release all three live blocks.
+    mov eax, [heap_ptr_a]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov eax, [heap_ptr_c]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov esi, heap_free_pass_msg
+    call serial_print
+
+    ; ========================================================
+    ; Heap Test 5: Verify adjacent-block coalescing.
+    ;
+    ; Allocate A, B, C. Free A and B, then request 128
+    ; bytes. A and B must merge into a 160-byte block.
+    ; The 144-byte total request fits only after merging.
+    ; ========================================================
+
+    mov eax, 64
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_a], eax
+
+    mov eax, 64
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_b], eax
+
+    mov eax, 64
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_c], eax
+
+    mov eax, [heap_ptr_a]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov eax, [heap_ptr_b]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov eax, 128
+    call kmalloc
+    test eax, eax
+    jz heap_coalesce_failed
+
+    mov [heap_ptr_d], eax
+
+    ; First-fit should reuse the merged A+B region.
+    cmp eax, [heap_ptr_a]
+    jne heap_coalesce_failed
+
+    mov esi, heap_coalesce_pass_msg
+    call serial_print
+
+    ; Free the merged allocation and the remaining C block.
+    mov eax, [heap_ptr_d]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov eax, [heap_ptr_c]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    ; ========================================================
+    ; Heap Test 6: The entire 4096-byte page must be reusable.
+    ; A 4080-byte payload plus its 16-byte header consumes
+    ; the entire heap page. This also verifies full coalescing.
+    ; ========================================================
+
+    mov eax, 4080
+    call kmalloc
+    test eax, eax
+    jz heap_coalesce_failed
+
+    mov [heap_ptr_d], eax
+
+    mov esi, heap_full_page_pass_msg
+    call serial_print
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov esi, heap_test_pass_msg
     call serial_print
 
     ; ========================================================
@@ -419,6 +609,48 @@ pmm_duplicate_page_failed:
 pmm_count_failed:
     cli
     mov esi, pmm_count_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_init_failed:
+    cli
+    mov esi, heap_init_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_alloc_failed:
+    cli
+    mov esi, heap_alloc_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_free_failed:
+    cli
+    mov esi, heap_free_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_double_free_failed:
+    cli
+    mov esi, heap_double_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_reuse_failed:
+    cli
+    mov esi, heap_reuse_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_coalesce_failed:
+    cli
+    mov esi, heap_coalesce_error_msg
+    call serial_print
+    jmp failure_hang
+
+heap_test_failed:
+    cli
+    mov esi, heap_test_error_msg
     call serial_print
 
 failure_hang:
@@ -512,6 +744,54 @@ pmm_duplicate_error_msg:
 pmm_count_error_msg:
     db "[PMM ERROR] Free-page count mismatch.", 13, 10, 0
 
+heap_init_msg:
+    db "[HEAP] Initializing kernel heap.", 13, 10, 0
+
+heap_init_pass_msg:
+    db "[HEAP TEST] Initialization: PASS", 13, 10, 0
+
+heap_alloc_pass_msg:
+    db "[HEAP TEST] Multiple allocations: PASS", 13, 10, 0
+
+heap_double_pass_msg:
+    db "[HEAP TEST] Double free rejected: PASS", 13, 10, 0
+
+heap_reuse_pass_msg:
+    db "[HEAP TEST] Freed block reused: PASS", 13, 10, 0
+
+heap_free_pass_msg:
+    db "[HEAP TEST] Blocks freed successfully: PASS", 13, 10, 0
+
+heap_coalesce_pass_msg:
+    db "[HEAP TEST] Adjacent blocks coalesced: PASS", 13, 10, 0
+
+heap_full_page_pass_msg:
+    db "[HEAP TEST] Full page allocation after coalescing: PASS", 13, 10, 0
+
+heap_test_pass_msg:
+    db "[HEAP] All runtime tests PASSED.", 13, 10, 0
+
+heap_init_error_msg:
+    db "[HEAP ERROR] Heap initialization failed.", 13, 10, 0
+
+heap_alloc_error_msg:
+    db "[HEAP ERROR] Allocation failed unexpectedly.", 13, 10, 0
+
+heap_free_error_msg:
+    db "[HEAP ERROR] Free operation failed.", 13, 10, 0
+
+heap_double_error_msg:
+    db "[HEAP ERROR] Double free was incorrectly accepted.", 13, 10, 0
+
+heap_reuse_error_msg:
+    db "[HEAP ERROR] Freed block was not reused as expected.", 13, 10, 0
+
+heap_coalesce_error_msg:
+    db "[HEAP ERROR] Block coalescing or full-page reuse failed.", 13, 10, 0
+
+heap_test_error_msg:
+    db "[HEAP ERROR] Allocation pointers are not distinct.", 13, 10, 0
+
 serial_newline:
     db 13, 10, 0
 
@@ -544,4 +824,16 @@ pmm_page_b:
     resd 1
 
 pmm_page_c:
+    resd 1
+
+heap_ptr_a:
+    resd 1
+
+heap_ptr_b:
+    resd 1
+
+heap_ptr_c:
+    resd 1
+
+heap_ptr_d:
     resd 1
