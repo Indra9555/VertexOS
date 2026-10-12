@@ -521,6 +521,71 @@ e820_print_done:
     cmp eax, 1
     jne heap_free_failed
 
+
+    ; ========================================================
+    ; Heap Test 7: Reject invalid allocation/free requests.
+    ; ========================================================
+
+    ; kmalloc(0) must fail.
+    xor eax, eax
+    call kmalloc
+    test eax, eax
+    jnz heap_test_failed
+
+    ; An overflowing request must fail.
+    mov eax, 0xFFFFFFFF
+    call kmalloc
+    test eax, eax
+    jnz heap_test_failed
+
+    ; kfree(NULL) must fail.
+    xor eax, eax
+    call kfree
+    test eax, eax
+    jnz heap_test_failed
+
+    ; Allocate a small block for invalid-pointer tests.
+    mov eax, 64
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_a], eax
+
+    ; An aligned address outside the heap must be rejected.
+    mov eax, 0x20000000
+    call kfree
+    test eax, eax
+    jnz heap_test_failed
+
+    ; A pointer inside the heap, but not at a payload start,
+    ; must be rejected. +8 remains aligned but is not valid.
+    mov eax, [heap_ptr_a]
+    add eax, 8
+    call kfree
+    test eax, eax
+    jnz heap_test_failed
+
+    ; The original pointer must remain valid after failed frees.
+    mov eax, [heap_ptr_a]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    ; The heap must still be usable after rejected requests.
+    mov eax, 64
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+    mov [heap_ptr_a], eax
+
+    mov eax, [heap_ptr_a]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov esi, heap_invalid_pass_msg
+    call serial_print
+
     mov esi, heap_test_pass_msg
     call serial_print
 
@@ -767,6 +832,9 @@ heap_coalesce_pass_msg:
 
 heap_full_page_pass_msg:
     db "[HEAP TEST] Full page allocation after coalescing: PASS", 13, 10, 0
+
+heap_invalid_pass_msg:
+    db "[HEAP TEST] Invalid inputs and pointers rejected: PASS", 13, 10, 0
 
 heap_test_pass_msg:
     db "[HEAP] All runtime tests PASSED.", 13, 10, 0
