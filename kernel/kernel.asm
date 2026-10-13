@@ -671,6 +671,110 @@ e820_print_done:
     call serial_print
 
     ; ========================================================
+    ; Memory exhaustion regression test.
+    ; Fill every heap region, then exhaust the remaining PMM.
+    ; Each allocation stores the previous list head in its
+    ; own payload, avoiding a large bookkeeping array.
+    ; ========================================================
+
+    mov dword [exhaust_heap_head], 0
+    mov dword [exhaust_heap_alloc_count], 0
+
+exhaust_heap_fill_loop:
+    mov eax, 4080
+    call kmalloc
+    test eax, eax
+    jz exhaust_heap_fill_done
+
+    mov edx, [exhaust_heap_head]
+    mov [eax], edx
+    mov [exhaust_heap_head], eax
+    inc dword [exhaust_heap_alloc_count]
+    jmp exhaust_heap_fill_loop
+
+exhaust_heap_fill_done:
+    ; The heap must be full while substantial PMM memory remains.
+    call pmm_get_free_pages
+    cmp eax, 1000
+    jb heap_test_failed
+    mov [exhaust_baseline_pages], eax
+
+    mov dword [exhaust_page_head], 0
+    mov dword [exhaust_page_alloc_count], 0
+
+exhaust_pmm_loop:
+    call pmm_alloc_page
+    test eax, eax
+    jz exhaust_pmm_done
+
+    mov edx, [exhaust_page_head]
+    mov [eax], edx
+    mov [exhaust_page_head], eax
+    inc dword [exhaust_page_alloc_count]
+    jmp exhaust_pmm_loop
+
+exhaust_pmm_done:
+    call pmm_get_free_pages
+    test eax, eax
+    jnz heap_test_failed
+
+    ; Another physical allocation must also fail.
+    call pmm_alloc_page
+    test eax, eax
+    jnz heap_test_failed
+
+    ; All heap regions are full and the PMM has no free pages.
+    mov eax, 4080
+    call kmalloc
+    test eax, eax
+    jnz heap_test_failed
+
+    ; Restore all physical pages owned by this test.
+    mov esi, [exhaust_page_head]
+
+exhaust_pmm_free_loop:
+    test esi, esi
+    jz exhaust_pmm_free_done
+
+    mov edx, [esi]
+    mov eax, esi
+    call pmm_free_page
+    cmp eax, 1
+    jne pmm_free_failed
+
+    mov esi, edx
+    jmp exhaust_pmm_free_loop
+
+exhaust_pmm_free_done:
+    call pmm_get_free_pages
+    cmp eax, [exhaust_baseline_pages]
+    jne heap_test_failed
+
+    mov esi, exhaust_pmm_pass_msg
+    call serial_print
+
+    ; Free the heap allocations created by this test.
+    ; Their physical regions remain registered with the heap.
+    mov esi, [exhaust_heap_head]
+
+exhaust_heap_free_loop:
+    test esi, esi
+    jz exhaust_heap_free_done
+
+    mov edx, [esi]
+    mov eax, esi
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov esi, edx
+    jmp exhaust_heap_free_loop
+
+exhaust_heap_free_done:
+    mov esi, exhaust_heap_pass_msg
+    call serial_print
+
+    ; ========================================================
     ; Existing VGA console, interrupts, timer, and shell.
     ; ========================================================
 
@@ -956,6 +1060,12 @@ heap_growth_reuse_pass_msg:
 heap_growth_error_msg:
     db "[HEAP ERROR] Multi-page growth or reuse failed.", 13, 10, 0
 
+exhaust_pmm_pass_msg:
+    db "[PMM TEST] Exhaustion and free-page recovery: PASS", 13, 10, 0
+
+exhaust_heap_pass_msg:
+    db "[HEAP TEST] Allocation fails when heap and PMM are exhausted: PASS", 13, 10, 0
+
 serial_newline:
     db 13, 10, 0
 
@@ -1000,4 +1110,19 @@ heap_ptr_c:
     resd 1
 
 heap_ptr_d:
+    resd 1
+
+exhaust_heap_head:
+    resd 1
+
+exhaust_heap_alloc_count:
+    resd 1
+
+exhaust_page_head:
+    resd 1
+
+exhaust_page_alloc_count:
+    resd 1
+
+exhaust_baseline_pages:
     resd 1
