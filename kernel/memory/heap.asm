@@ -107,7 +107,14 @@ kmalloc:
     cmp ecx, [heap_region_count]
     jae .grow
 
+    mov eax, [heap_region_bases + ecx * 4]
+    call heap_validate_region
+    test eax, eax
+    jz .fail
+
     mov esi, [heap_region_heads + ecx * 4]
+    cmp esi, [heap_region_bases + ecx * 4]
+    jne .fail
 
 .search_block:
     test esi, esi
@@ -240,6 +247,11 @@ kfree:
     cmp ecx, [heap_region_count]
     jae .fail
 
+    mov eax, [heap_region_bases + ecx * 4]
+    call heap_validate_region
+    test eax, eax
+    jz .fail
+
     mov esi, [heap_region_bases + ecx * 4]
     mov edx, esi
     add edx, HEAP_PAGE_SIZE
@@ -324,6 +336,88 @@ kfree:
     xor eax, eax
 
 .done:
+    pop edi
+    pop esi
+    pop edx
+    pop ecx
+    pop ebx
+    ret
+
+
+; ------------------------------------------------------------
+; heap_validate_region
+; Input: EAX = registered region base.
+; Output: EAX = 1 if the block chain is consistent, else 0.
+; Walks by validated sizes, never by untrusted next pointers.
+; ------------------------------------------------------------
+
+heap_validate_region:
+    push ebx
+    push ecx
+    push edx
+    push esi
+    push edi
+
+    mov ebx, eax
+    mov esi, eax
+    mov edi, eax
+    add edi, HEAP_PAGE_SIZE
+    jc .invalid
+
+    xor edx, edx
+
+.check_block:
+    cmp esi, edi
+    jae .invalid
+
+    ; A complete header must fit in the remaining region.
+    mov ecx, edi
+    sub ecx, esi
+    cmp ecx, HEAP_HEADER_SIZE
+    jb .invalid
+
+    ; Validate size and free flag before using block metadata.
+    mov eax, [esi]
+    cmp eax, HEAP_HEADER_SIZE
+    jb .invalid
+    test eax, HEAP_ALIGNMENT - 1
+    jnz .invalid
+    cmp eax, ecx
+    ja .invalid
+    cmp dword [esi + 4], 1
+    ja .invalid
+
+    ; The previous link must match the validated predecessor.
+    cmp [esi + 8], edx
+    jne .invalid
+
+    ; Calculate the successor without following the stored link.
+    mov ecx, esi
+    add ecx, eax
+    jc .invalid
+    cmp ecx, edi
+    ja .invalid
+    je .last_block
+
+    ; Non-final block must link to the calculated successor.
+    cmp [esi + 12], ecx
+    jne .invalid
+
+    mov edx, esi
+    mov esi, ecx
+    jmp .check_block
+
+.last_block:
+    ; Final block must end exactly at the region boundary.
+    cmp dword [esi + 12], 0
+    jne .invalid
+    mov eax, 1
+    jmp .validate_done
+
+.invalid:
+    xor eax, eax
+
+.validate_done:
     pop edi
     pop esi
     pop edx

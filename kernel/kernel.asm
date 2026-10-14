@@ -521,6 +521,46 @@ e820_print_done:
     cmp eax, 1
     jne heap_free_failed
 
+    ; ========================================================
+    ; Heap Test: Corrupted block metadata must be rejected.
+    ; ========================================================
+
+    mov eax, 32
+    call kmalloc
+    test eax, eax
+    jz heap_alloc_failed
+
+    ; Save the allocated block header and its original size.
+    sub eax, 16
+    mov [heap_corrupt_header], eax
+    mov ebx, [eax]
+    mov [heap_corrupt_original_size], ebx
+
+    ; An impossible, unaligned block size must be rejected.
+    mov dword [eax], 0xFFFFFFF8
+    mov eax, 8
+    call kmalloc
+    mov [heap_corrupt_result], eax
+
+    ; Restore the header before doing any further heap operation.
+    mov eax, [heap_corrupt_header]
+    mov ebx, [heap_corrupt_original_size]
+    mov [eax], ebx
+
+    ; Allocation must have failed while metadata was corrupted.
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; The restored block must still be freeable.
+    mov eax, [heap_corrupt_header]
+    add eax, 16
+    call kfree
+    cmp eax, 1
+    jne heap_metadata_failed
+
+    mov esi, heap_metadata_pass_msg
+    call serial_print
+
 
     ; ========================================================
     ; Heap Test 7: Reject invalid allocation/free requests.
@@ -908,6 +948,13 @@ heap_test_failed:
     cli
     mov esi, heap_test_error_msg
     call serial_print
+    jmp failure_hang
+
+heap_metadata_failed:
+    cli
+    mov esi, heap_metadata_error_msg
+    call serial_print
+    jmp failure_hang
 
 failure_hang:
     hlt
@@ -1024,6 +1071,9 @@ heap_coalesce_pass_msg:
 heap_full_page_pass_msg:
     db "[HEAP TEST] Full page allocation after coalescing: PASS", 13, 10, 0
 
+heap_metadata_pass_msg:
+    db "[HEAP TEST] Corrupted block metadata rejected and recovery verified: PASS", 13, 10, 0
+
 heap_invalid_pass_msg:
     db "[HEAP TEST] Invalid inputs and pointers rejected: PASS", 13, 10, 0
 
@@ -1050,6 +1100,9 @@ heap_coalesce_error_msg:
 
 heap_test_error_msg:
     db "[HEAP ERROR] Allocation pointers are not distinct.", 13, 10, 0
+
+heap_metadata_error_msg:
+    db "[HEAP ERROR] Heap metadata corruption test failed.", 13, 10, 0
 
 heap_growth_pass_msg:
     db "[HEAP TEST] Multi-page growth and independent frees: PASS", 13, 10, 0
@@ -1110,6 +1163,15 @@ heap_ptr_c:
     resd 1
 
 heap_ptr_d:
+    resd 1
+
+heap_corrupt_header:
+    resd 1
+
+heap_corrupt_original_size:
+    resd 1
+
+heap_corrupt_result:
     resd 1
 
 exhaust_heap_head:
