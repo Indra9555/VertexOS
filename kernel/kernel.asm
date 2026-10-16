@@ -558,6 +558,116 @@ e820_print_done:
     cmp eax, 1
     jne heap_metadata_failed
 
+    ; --------------------------------------------------------
+    ; Reject an invalid free flag (only 0 and 1 are valid).
+    ; --------------------------------------------------------
+
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 4]
+    mov dword [eax + 4], 2
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 4], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; kfree must also reject the corrupted region.
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 4]
+    mov dword [eax + 4], 2
+
+    mov eax, [heap_corrupt_header]
+    add eax, 16
+    call kfree
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 4], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; --------------------------------------------------------
+    ; Reject an invalid previous-block link.
+    ; --------------------------------------------------------
+
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 8]
+    mov dword [eax + 8], 0x12345678
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 8], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 8]
+    mov dword [eax + 8], 0x12345678
+
+    mov eax, [heap_corrupt_header]
+    add eax, 16
+    call kfree
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 8], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; --------------------------------------------------------
+    ; Reject an invalid next-block link.
+    ; --------------------------------------------------------
+
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 12]
+    mov dword [eax + 12], 0x12345678
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 12], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 12]
+    mov dword [eax + 12], 0x12345678
+
+    mov eax, [heap_corrupt_header]
+    add eax, 16
+    call kfree
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 12], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; Verify the restored heap remains usable.
+    mov eax, 16
+    call kmalloc
+    test eax, eax
+    jz heap_metadata_failed
+
+    call kfree
+    cmp eax, 1
+    jne heap_metadata_failed
+
     mov esi, heap_metadata_pass_msg
     call serial_print
 
