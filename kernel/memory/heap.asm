@@ -10,6 +10,7 @@
 global heap_init
 global kmalloc
 global kfree
+global heap_region_count
 
 extern pmm_alloc_page
 
@@ -80,6 +81,11 @@ kmalloc:
 
     cmp dword [heap_ready], 1
     jne .fail
+    mov ecx, [heap_region_count]
+    test ecx, ecx
+    jz .fail
+    cmp ecx, HEAP_MAX_REGIONS
+    ja .fail
 
     test eax, eax
     jz .fail
@@ -234,6 +240,11 @@ kfree:
 
     cmp dword [heap_ready], 1
     jne .fail
+    mov ecx, [heap_region_count]
+    test ecx, ecx
+    jz .fail
+    cmp ecx, HEAP_MAX_REGIONS
+    ja .fail
 
     ; Payload pointers must be 8-byte aligned.
     test eax, HEAP_ALIGNMENT - 1

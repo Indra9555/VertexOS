@@ -24,6 +24,7 @@ extern pmm_get_free_pages
 extern heap_init
 extern kmalloc
 extern kfree
+extern heap_region_count
 
 extern idt_init
 extern pic_init
@@ -673,6 +674,80 @@ e820_print_done:
 
 
     ; ========================================================
+    ; Heap Test: Reject corrupted region registry counts.
+    ; ========================================================
+
+    ; Allocate a valid block that must remain freeable after
+    ; the corrupted registry count is restored.
+    mov eax, 16
+    call kmalloc
+    test eax, eax
+    jz heap_test_failed
+    mov [heap_ptr_d], eax
+
+    ; Count zero: kmalloc and kfree must both reject it.
+    mov eax, [heap_region_count]
+    mov [heap_registry_original_count], eax
+    mov dword [heap_region_count], 0
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_registry_kmalloc_result], eax
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    mov [heap_registry_kfree_result], eax
+
+    mov eax, [heap_registry_original_count]
+    mov [heap_region_count], eax
+
+    cmp dword [heap_registry_kmalloc_result], 0
+    jne heap_registry_failed
+    cmp dword [heap_registry_kfree_result], 0
+    jne heap_registry_failed
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    ; Count above capacity: both APIs must reject it.
+    mov eax, 16
+    call kmalloc
+    test eax, eax
+    jz heap_test_failed
+    mov [heap_ptr_d], eax
+
+    mov eax, [heap_region_count]
+    mov [heap_registry_original_count], eax
+    mov dword [heap_region_count], 257
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_registry_kmalloc_result], eax
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    mov [heap_registry_kfree_result], eax
+
+    mov eax, [heap_registry_original_count]
+    mov [heap_region_count], eax
+
+    cmp dword [heap_registry_kmalloc_result], 0
+    jne heap_registry_failed
+    cmp dword [heap_registry_kfree_result], 0
+    jne heap_registry_failed
+
+    ; Restored registry must still allow valid free operations.
+    mov eax, [heap_ptr_d]
+    call kfree
+    cmp eax, 1
+    jne heap_free_failed
+
+    mov esi, heap_registry_pass_msg
+    call serial_print
+
+    ; ========================================================
     ; Heap Test 7: Reject invalid allocation/free requests.
     ; ========================================================
 
@@ -1060,6 +1135,12 @@ heap_test_failed:
     call serial_print
     jmp failure_hang
 
+heap_registry_failed:
+    cli
+    mov esi, heap_registry_error_msg
+    call serial_print
+    jmp failure_hang
+
 heap_metadata_failed:
     cli
     mov esi, heap_metadata_error_msg
@@ -1186,6 +1267,8 @@ heap_metadata_pass_msg:
 
 heap_invalid_pass_msg:
     db "[HEAP TEST] Invalid inputs and pointers rejected: PASS", 13, 10, 0
+heap_registry_pass_msg:
+    db "[HEAP TEST] Invalid registry counts rejected and recovery verified: PASS", 13, 10, 0
 
 heap_test_pass_msg:
     db "[HEAP] All runtime tests PASSED.", 13, 10, 0
@@ -1210,6 +1293,9 @@ heap_coalesce_error_msg:
 
 heap_test_error_msg:
     db "[HEAP ERROR] Allocation pointers are not distinct.", 13, 10, 0
+
+heap_registry_error_msg:
+    db "[HEAP ERROR] Invalid registry count was accepted or recovery failed.", 13, 10, 0
 
 heap_metadata_error_msg:
     db "[HEAP ERROR] Heap metadata corruption test failed.", 13, 10, 0
@@ -1282,6 +1368,14 @@ heap_corrupt_original_size:
     resd 1
 
 heap_corrupt_result:
+    resd 1
+heap_registry_original_count:
+    resd 1
+
+heap_registry_kmalloc_result:
+    resd 1
+
+heap_registry_kfree_result:
     resd 1
 
 exhaust_heap_head:
