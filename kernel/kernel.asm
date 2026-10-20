@@ -660,6 +660,80 @@ e820_print_done:
     cmp dword [heap_corrupt_result], 0
     jne heap_metadata_failed
 
+    ; --------------------------------------------------------
+    ; Reject an aligned, in-page but incorrect next-block link.
+    ; --------------------------------------------------------
+
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 12]
+    mov edx, [heap_corrupt_header]
+    mov [eax + 12], edx
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_corrupt_result], eax
+
+    ; Restore the original link before checking the result.
+    mov eax, [heap_corrupt_header]
+    mov [eax + 12], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; Repeat the corruption and verify kfree rejects it too.
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 12]
+    mov edx, [heap_corrupt_header]
+    mov [eax + 12], edx
+
+    mov eax, [heap_corrupt_header]
+    add eax, 16
+    call kfree
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 12], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; --------------------------------------------------------
+    ; Reject an aligned, in-page but incorrect next-block link.
+    ; --------------------------------------------------------
+
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 12]
+    mov edx, [heap_corrupt_header]
+    mov [eax + 12], edx
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_corrupt_result], eax
+
+    ; Restore the original link before checking the result.
+    mov eax, [heap_corrupt_header]
+    mov [eax + 12], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
+    ; Repeat the corruption and verify kfree rejects it too.
+    mov eax, [heap_corrupt_header]
+    mov ebx, [eax + 12]
+    mov edx, [heap_corrupt_header]
+    mov [eax + 12], edx
+
+    mov eax, [heap_corrupt_header]
+    add eax, 16
+    call kfree
+    mov [heap_corrupt_result], eax
+
+    mov eax, [heap_corrupt_header]
+    mov [eax + 12], ebx
+
+    cmp dword [heap_corrupt_result], 0
+    jne heap_metadata_failed
+
     ; Verify the restored heap remains usable.
     mov eax, 16
     call kmalloc
