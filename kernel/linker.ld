@@ -29,7 +29,7 @@ SECTIONS
         __data_end = .;
     }
 
-    .bss ALIGN(16) (NOLOAD) :
+    .bss ALIGN(512) (NOLOAD) :
     {
         __bss_start = .;
         *(COMMON)

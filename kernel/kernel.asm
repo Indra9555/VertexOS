@@ -25,6 +25,7 @@ extern heap_init
 extern kmalloc
 extern kfree
 extern heap_region_count
+extern heap_region_bases
 
 extern idt_init
 extern pic_init
@@ -744,6 +745,70 @@ e820_print_done:
     cmp eax, 1
     jne heap_free_failed
 
+    ; Reject an unaligned registered region base.
+    mov eax, 16
+    call kmalloc
+    test eax, eax
+    jz heap_registry_failed
+    mov [heap_ptr_d], eax
+
+    mov eax, [heap_region_bases]
+    mov [heap_registry_original_base], eax
+    mov dword [heap_region_bases], 0x00100001
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_registry_kmalloc_result], eax
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    mov [heap_registry_kfree_result], eax
+
+    mov eax, [heap_registry_original_base]
+    mov [heap_region_bases], eax
+
+    cmp dword [heap_registry_kmalloc_result], 0
+    jne heap_registry_failed
+    cmp dword [heap_registry_kfree_result], 0
+    jne heap_registry_failed
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    cmp eax, 1
+    jne heap_registry_failed
+
+    ; Reject a region base at the exclusive PMM upper bound.
+    mov eax, 16
+    call kmalloc
+    test eax, eax
+    jz heap_registry_failed
+    mov [heap_ptr_d], eax
+
+    mov eax, [heap_region_bases]
+    mov [heap_registry_original_base], eax
+    mov dword [heap_region_bases], 0x08000000
+
+    mov eax, 8
+    call kmalloc
+    mov [heap_registry_kmalloc_result], eax
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    mov [heap_registry_kfree_result], eax
+
+    mov eax, [heap_registry_original_base]
+    mov [heap_region_bases], eax
+
+    cmp dword [heap_registry_kmalloc_result], 0
+    jne heap_registry_failed
+    cmp dword [heap_registry_kfree_result], 0
+    jne heap_registry_failed
+
+    mov eax, [heap_ptr_d]
+    call kfree
+    cmp eax, 1
+    jne heap_registry_failed
+
     mov esi, heap_registry_pass_msg
     call serial_print
 
@@ -1370,6 +1435,9 @@ heap_corrupt_original_size:
 heap_corrupt_result:
     resd 1
 heap_registry_original_count:
+    resd 1
+
+heap_registry_original_base:
     resd 1
 
 heap_registry_kmalloc_result:

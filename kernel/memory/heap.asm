@@ -11,6 +11,7 @@ global heap_init
 global kmalloc
 global kfree
 global heap_region_count
+global heap_region_bases
 
 extern pmm_alloc_page
 
@@ -368,6 +369,14 @@ heap_validate_region:
     push edx
     push esi
     push edi
+
+    ; Reject invalid physical page bases before dereferencing.
+    test eax, HEAP_PAGE_SIZE - 1
+    jnz .invalid
+    cmp eax, 0x00100000
+    jb .invalid
+    cmp eax, 0x08000000 - HEAP_PAGE_SIZE
+    ja .invalid
 
     mov ebx, eax
     mov esi, eax
