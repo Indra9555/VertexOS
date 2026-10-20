@@ -154,7 +154,6 @@ exception_20:
     jmp exception_common_handler
 
 exception_21:
-    push dword 0
     push dword 21
     jmp exception_common_handler
 
@@ -194,12 +193,10 @@ exception_28:
     jmp exception_common_handler
 
 exception_29:
-    push dword 0
     push dword 29
     jmp exception_common_handler
 
 exception_30:
-    push dword 0
     push dword 30
     jmp exception_common_handler
 
