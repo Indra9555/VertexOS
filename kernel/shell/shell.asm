@@ -79,23 +79,27 @@ shell_init:
 
 shell_update:
 
-    cmp byte [keyboard_command_ready], 1
+    ; Atomically capture a completed keyboard command.
+    pushfd
+    cli
 
-    jne shell_update_done
+    cmp byte [keyboard_command_ready], 1
+    jne shell_update_no_command
 
     mov byte [keyboard_command_ready], 0
 
     mov edi, shell_buffer
-
     call keyboard_get_input
-
     mov [shell_command_length], eax
 
+    ; Restore the original interrupt state before executing.
+    popfd
+
     call shell_execute
+    ret
 
-
-shell_update_done:
-
+shell_update_no_command:
+    popfd
     ret
 
 
