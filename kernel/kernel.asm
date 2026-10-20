@@ -1088,10 +1088,19 @@ exhaust_pmm_done:
     jnz heap_test_failed
 
     ; All heap regions are full and the PMM has no free pages.
+    ; Save the registry count before the expected allocation failure.
+    mov eax, [heap_region_count]
+    mov [exhaust_heap_alloc_count], eax
+
     mov eax, 4080
     call kmalloc
     test eax, eax
     jnz heap_test_failed
+
+    ; Failed allocation must not register a new heap region.
+    mov eax, [heap_region_count]
+    cmp eax, [exhaust_heap_alloc_count]
+    jne heap_test_failed
 
     ; Restore all physical pages owned by this test.
     mov esi, [exhaust_page_head]
