@@ -184,6 +184,9 @@ keyboard_check_uppercase:
 
 keyboard_character_ready_final:
 
+    cmp byte [keyboard_command_ready], 1
+    je keyboard_done
+
     ; --------------------------------------------------------
     ; Prevent input overflow.
     ; --------------------------------------------------------
@@ -282,6 +285,9 @@ keyboard_shift_release:
 
 keyboard_enter:
 
+    cmp byte [keyboard_command_ready], 1
+    je keyboard_done
+
     cmp dword [input_length], 0
     je keyboard_done
 
@@ -300,6 +306,9 @@ keyboard_enter:
 ; ============================================================
 
 keyboard_backspace:
+
+    cmp byte [keyboard_command_ready], 1
+    je keyboard_done
 
     cmp dword [input_length], 0
     je keyboard_done
