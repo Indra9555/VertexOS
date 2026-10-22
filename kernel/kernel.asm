@@ -37,6 +37,7 @@ extern keyboard_set_cursor
 
 extern shell_init
 extern shell_update
+extern keyboard_service
 
 %define PMM_MAX_MEMORY 0x08000000
 
@@ -1180,6 +1181,7 @@ exhaust_heap_free_done:
 
 kernel_loop:
     call shell_update
+    call keyboard_service
     hlt
     jmp kernel_loop
 

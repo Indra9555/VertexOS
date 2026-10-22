@@ -3,6 +3,7 @@
 section .text
 
 global keyboard_handler
+global keyboard_service
 global input_buffer
 global input_buffer_write
 global keyboard_get_input
@@ -22,6 +23,7 @@ extern console_set_cursor
 extern console_draw_cursor
 extern console_remove_cursor
 extern console_backspace
+extern timer_ticks
 
 
 ; ============================================================
@@ -49,6 +51,29 @@ keyboard_handler:
     pushad
 
     in al, PS2_DATA_PORT
+
+    ; Handle ACK bytes separately from normal key scancodes.
+    cmp al, KEYBOARD_ACK
+    jne keyboard_dispatch_scancode
+
+    cmp byte [keyboard_led_state], 1
+    je keyboard_led_command_ack
+
+    cmp byte [keyboard_led_state], 2
+    je keyboard_led_data_ack
+
+    ; Ignore unexpected or late ACKs.
+    jmp keyboard_done
+
+keyboard_led_command_ack:
+    mov byte [keyboard_led_state], 3
+    jmp keyboard_done
+
+keyboard_led_data_ack:
+    mov byte [keyboard_led_state], 4
+    jmp keyboard_done
+
+keyboard_dispatch_scancode:
 
     ; --------------------------------------------------------
     ; Ignore key-release scancodes.
@@ -244,11 +269,11 @@ keyboard_caps_lock:
 
     xor byte [caps_lock_pressed], 1
 
-    ; --------------------------------------------------------
-    ; Synchronize physical keyboard LED.
-    ; --------------------------------------------------------
-
-    call keyboard_update_led
+    ; Queue an LED update; never wait for PS/2 hardware in IRQ1.
+    mov al, [caps_lock_pressed]
+    shl al, 2
+    mov [keyboard_led_value], al
+    mov byte [keyboard_led_pending], 1
 
     jmp keyboard_done
 
@@ -350,135 +375,102 @@ keyboard_done:
 
 
 ; ============================================================
-; UPDATE KEYBOARD LED
+; NON-BLOCKING KEYBOARD LED SERVICE
 ;
-; Uses PS/2 keyboard command:
+; keyboard_led_state:
+;   0 = idle
+;   1 = waiting for ACK to 0xED
+;   2 = waiting for ACK to LED data
+;   3 = ACK received; send LED data next
+;   4 = LED data ACK received; finish
+;   5 = timeout recovery cooldown
 ;
-;   0xED = Set LEDs
-;
-; LED byte:
-;
-;   bit 0 = Scroll Lock
-;   bit 1 = Num Lock
-;   bit 2 = Caps Lock
-;
+; Timeout: 100 timer ticks, approximately one second.
+; After a timeout, wait another second before retrying.
 ; ============================================================
 
-keyboard_update_led:
+KEYBOARD_LED_TIMEOUT_TICKS equ 100
 
-    push eax
-    push ecx
+keyboard_service:
+    pushad
 
+    ; Check whether either ACK wait has timed out.
+    cmp byte [keyboard_led_state], 1
+    je keyboard_led_check_timeout
+    cmp byte [keyboard_led_state], 2
+    je keyboard_led_check_timeout
+    cmp byte [keyboard_led_state], 5
+    je keyboard_led_cooldown
 
-    ; --------------------------------------------------------
-    ; Wait until keyboard controller input buffer is clear.
-    ;
-    ; Status bit 1:
-    ;
-    ;   0 = controller can accept data
-    ;   1 = controller input buffer full
-    ;
-    ; Use a bounded loop so a broken controller cannot hang
-    ; the entire kernel forever.
-    ; --------------------------------------------------------
+    cmp byte [keyboard_led_state], 4
+    je keyboard_led_finish
+    cmp byte [keyboard_led_state], 3
+    je keyboard_led_send_value
+    cmp byte [keyboard_led_state], 0
+    jne keyboard_led_service_done
 
-    mov ecx, 0x0000FFFF
+    cmp byte [keyboard_led_pending], 1
+    jne keyboard_led_service_done
 
-keyboard_led_wait_command:
-
+    ; Send only when the controller input buffer is clear.
     in al, PS2_STATUS_PORT
-
     test al, PS2_STATUS_INPUT
-    jz keyboard_led_send_command
+    jnz keyboard_led_service_done
 
-    loop keyboard_led_wait_command
-
-    jmp keyboard_led_done
-
-
-keyboard_led_send_command:
-
+    mov byte [keyboard_led_pending], 0
+    mov byte [keyboard_led_state], 1
+    mov eax, [timer_ticks]
+    mov [keyboard_led_started_tick], eax
     mov al, KEYBOARD_SET_LEDS
     out PS2_DATA_PORT, al
+    jmp keyboard_led_service_done
 
+keyboard_led_check_timeout:
+    mov eax, [timer_ticks]
+    sub eax, [keyboard_led_started_tick]
+    cmp eax, KEYBOARD_LED_TIMEOUT_TICKS
+    jb keyboard_led_service_done
 
-    ; --------------------------------------------------------
-    ; Wait for keyboard ACK.
-    ;
-    ; The keyboard normally responds with 0xFA.
-    ;
-    ; We poll the controller output buffer.
-    ; --------------------------------------------------------
+    ; Recover from a missing ACK without blocking keyboard input.
+    ; Preserve a retry request for the latest LED value.
+    mov byte [keyboard_led_pending], 1
+    mov byte [keyboard_led_state], 5
+    mov eax, [timer_ticks]
+    mov [keyboard_led_started_tick], eax
+    jmp keyboard_led_service_done
 
-    mov ecx, 0x0000FFFF
+keyboard_led_cooldown:
+    mov eax, [timer_ticks]
+    sub eax, [keyboard_led_started_tick]
+    cmp eax, KEYBOARD_LED_TIMEOUT_TICKS
+    jb keyboard_led_service_done
 
-keyboard_led_wait_ack:
+    ; Cooldown reduces the chance that a late ACK is mistaken
+    ; for the response to a newly issued command.
+    mov byte [keyboard_led_state], 0
+    jmp keyboard_led_service_done
 
+keyboard_led_send_value:
     in al, PS2_STATUS_PORT
-
-    test al, 0x01
-    jnz keyboard_led_read_ack
-
-    loop keyboard_led_wait_ack
-
-    jmp keyboard_led_done
-
-
-keyboard_led_read_ack:
-
-    in al, PS2_DATA_PORT
-
-    cmp al, KEYBOARD_ACK
-    jne keyboard_led_done
-
-
-    ; --------------------------------------------------------
-    ; Wait until keyboard controller input buffer is clear
-    ; before sending the LED state byte.
-    ; --------------------------------------------------------
-
-    mov ecx, 0x0000FFFF
-
-keyboard_led_wait_data:
-
-    in al, PS2_STATUS_PORT
-
     test al, PS2_STATUS_INPUT
-    jz keyboard_led_send_data
+    jnz keyboard_led_service_done
 
-    loop keyboard_led_wait_data
-
-    jmp keyboard_led_done
-
-
-keyboard_led_send_data:
-
-    xor eax, eax
-
-    ; --------------------------------------------------------
-    ; Caps Lock = bit 2.
-    ; --------------------------------------------------------
-
-    cmp byte [caps_lock_pressed], 0
-    je keyboard_led_caps_off
-
-    mov al, 0x04
-
-
-keyboard_led_caps_off:
-
+    mov al, [keyboard_led_value]
+    mov byte [keyboard_led_state], 2
+    mov eax, [timer_ticks]
+    mov [keyboard_led_started_tick], eax
+    mov al, [keyboard_led_value]
     out PS2_DATA_PORT, al
+    jmp keyboard_led_service_done
 
+keyboard_led_finish:
+    mov byte [keyboard_led_state], 0
 
-keyboard_led_done:
-
-    pop ecx
-    pop eax
-
+keyboard_led_service_done:
+    popad
     ret
 
 
-; ============================================================
 ; BUFFER WRITE
 ;
 ; AL = character
@@ -685,6 +677,19 @@ shift_pressed:
 
 caps_lock_pressed:
     db 0
+
+; Asynchronous PS/2 LED update state.
+keyboard_led_pending:
+    db 0
+
+keyboard_led_state:
+    db 0
+
+keyboard_led_value:
+    db 0
+
+keyboard_led_started_tick:
+    dd 0
 
 input_start:
     dd 0
