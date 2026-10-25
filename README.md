@@ -595,7 +595,7 @@ The goal is not simply to produce a bootable operating system, but to understand
 
 ### Phase 3 — Memory Management
 
-- [ ] Memory map
+- [x] Memory map
 - [ ] Physical memory manager
 - [ ] Paging
 - [ ] Virtual memory
