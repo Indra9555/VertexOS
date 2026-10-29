@@ -2,6 +2,10 @@
 [bits 16]
 [org 0x8000]
 
+%ifndef KERNEL_SECTORS
+    %error "KERNEL_SECTORS must be provided by the build"
+%endif
+
 %define E820_BUFFER         0x9100
 %define E820_COUNT          0x9000
 %define E820_MAX_ENTRIES    32
@@ -157,7 +161,7 @@ boot_drive:
 align 4
 kernel_dap:
     db 0x10, 0
-    dw 34
+    dw KERNEL_SECTORS
     dw 0x1000
     dw 0x0000
     dq 5

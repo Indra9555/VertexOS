@@ -48,9 +48,12 @@ $(BOOT_BIN): $(BOOT_SRC)
 
 stage2: $(STAGE2_BIN)
 
-$(STAGE2_BIN): $(STAGE2_SRC)
+$(STAGE2_BIN): $(STAGE2_SRC) $(KERNEL_BIN)
 	mkdir -p build
-	$(ASM) -f bin $< -o $@
+	kernel_bytes=$$(stat -c %s $(KERNEL_BIN)); \
+	kernel_sectors=$$(( (kernel_bytes + 511) / 512 )); \
+	test "$$kernel_bytes" -le 17408 || { echo "Kernel exceeds the 34-sector bootloader limit."; exit 1; }; \
+	$(ASM) -f bin -D KERNEL_SECTORS=$$kernel_sectors $< -o $@
 	test "$$(stat -c %s $@)" -le $(STAGE2_SIZE)
 	truncate -s $(STAGE2_SIZE) $@
 
