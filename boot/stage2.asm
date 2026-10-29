@@ -157,7 +157,7 @@ boot_drive:
 align 4
 kernel_dap:
     db 0x10, 0
-    dw 33
+    dw 34
     dw 0x1000
     dw 0x0000
     dq 5
