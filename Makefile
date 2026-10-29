@@ -66,7 +66,7 @@ $(KERNEL_ELF): $(KERNEL_OBJECTS) $(LINKER_SCRIPT)
 
 $(KERNEL_BIN): $(KERNEL_ELF)
 	$(OBJCOPY) -O binary $< $@
-	test "$$(stat -c %s $@)" -le 17920
+	test "$$(stat -c %s $@)" -le 17408
 
 image: $(OS_IMAGE)
 
