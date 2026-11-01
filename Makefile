@@ -89,4 +89,5 @@ check: image
 	test "$$(stat -c %s $(KERNEL_BIN))" -le 17408
 	test "$$(stat -c %s $(OS_IMAGE))" -eq 20480
 	test "$$(od -An -tx1 -j510 -N2 $(BOOT_BIN) | tr -d ' \n')" = "55aa"
+	python3 tests/test_kernel_sectors.py
 	echo "VertexOS image checks passed."
