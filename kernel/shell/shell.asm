@@ -23,6 +23,7 @@ extern console_set_cursor
 
 extern time_get_ticks
 extern time_get_seconds
+extern pmm_get_free_pages
 
 extern kernel_panic
 
@@ -216,6 +217,20 @@ shell_execute:
 
 
     ; ========================================================
+    ; MEMORY
+    ; ========================================================
+
+    mov esi, shell_buffer
+    mov edi, cmd_mem
+
+    call strings_equal
+
+    cmp eax, 1
+
+    je shell_cmd_mem
+
+
+    ; ========================================================
     ; PANIC
     ; ========================================================
 
@@ -314,6 +329,11 @@ shell_cmd_help:
     call console_newline
 
     mov esi, help_line9
+    call console_print
+
+    call console_newline
+
+    mov esi, help_line10
     call console_print
 
     call console_newline
@@ -469,6 +489,46 @@ shell_cmd_uptime:
     call shell_print_decimal
 
     mov esi, seconds_label
+    call console_print
+
+    call console_newline
+
+    call shell_print_prompt
+
+    jmp shell_execute_done
+
+
+; ============================================================
+; MEMORY
+;
+; Displays current free physical memory.
+; Each physical page is 4 KiB.
+; ============================================================
+
+shell_cmd_mem:
+
+    call console_newline
+
+    mov esi, memory_pages_label
+    call console_print
+
+    call pmm_get_free_pages
+
+    call shell_print_decimal
+
+    call console_newline
+
+    mov esi, memory_kib_label
+    call console_print
+
+    call pmm_get_free_pages
+
+    ; Convert 4 KiB pages into KiB.
+    shl eax, 2
+
+    call shell_print_decimal
+
+    mov esi, kib_suffix
     call console_print
 
     call console_newline
@@ -831,6 +891,11 @@ cmd_uptime:
     db "uptime", 0
 
 
+cmd_mem:
+
+    db "mem", 0
+
+
 cmd_panic:
 
     db "panic", 0
@@ -904,6 +969,11 @@ help_line9:
     db "  panic   - Trigger kernel panic", 0
 
 
+help_line10:
+
+    db "  mem     - Show free physical memory", 0
+
+
 ; ============================================================
 ; TIME TEXT
 ; ============================================================
@@ -921,6 +991,21 @@ uptime_label:
 seconds_label:
 
     db " seconds", 0
+
+
+memory_pages_label:
+
+    db "Free physical pages: ", 0
+
+
+memory_kib_label:
+
+    db "Free physical memory: ", 0
+
+
+kib_suffix:
+
+    db " KiB", 0
 
 
 ; ============================================================
