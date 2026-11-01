@@ -35,7 +35,7 @@ KERNEL_BIN = build/kernel.bin
 LINKER_SCRIPT = kernel/linker.ld
 OS_IMAGE = build/VertexOS.img
 
-.PHONY: all boot stage2 kernel image run clean
+.PHONY: all boot stage2 kernel image check run clean
 
 all: image
 
@@ -82,3 +82,11 @@ run: image
 
 clean:
 	rm -rf build
+
+check: image
+	test "$$(stat -c %s $(BOOT_BIN))" -eq 512
+	test "$$(stat -c %s $(STAGE2_BIN))" -eq $(STAGE2_SIZE)
+	test "$$(stat -c %s $(KERNEL_BIN))" -le 17408
+	test "$$(stat -c %s $(OS_IMAGE))" -eq 20480
+	test "$$(od -An -tx1 -j510 -N2 $(BOOT_BIN) | tr -d ' \n')" = "55aa"
+	echo "VertexOS image checks passed."
