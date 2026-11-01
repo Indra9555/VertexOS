@@ -24,6 +24,7 @@ extern console_set_cursor
 extern time_get_ticks
 extern time_get_seconds
 extern pmm_get_free_pages
+extern pmm_get_total_pages
 
 extern kernel_panic
 
@@ -509,32 +510,79 @@ shell_cmd_mem:
 
     call console_newline
 
-    mov esi, memory_pages_label
+    mov esi, memory_title
     call console_print
-
-    call pmm_get_free_pages
-
-    call shell_print_decimal
-
     call console_newline
 
+    ; Total usable pages.
+    mov esi, memory_total_label
+    call console_print
+    call pmm_get_total_pages
+    call shell_print_decimal
+    call console_newline
+
+    ; Free pages.
+    mov esi, memory_free_label
+    call console_print
+    call pmm_get_free_pages
+    call shell_print_decimal
+    call console_newline
+
+    ; Allocated pages = total usable - free.
+    mov esi, memory_allocated_label
+    call console_print
+    call pmm_get_total_pages
+    mov ebx, eax
+    call pmm_get_free_pages
+    sub ebx, eax
+    mov eax, ebx
+    call shell_print_decimal
+    call console_newline
+
+    ; Free memory in KiB (4 KiB per page).
     mov esi, memory_kib_label
     call console_print
-
     call pmm_get_free_pages
-
-    ; Convert 4 KiB pages into KiB.
     shl eax, 2
-
     call shell_print_decimal
-
     mov esi, kib_suffix
     call console_print
+    call console_newline
 
+    ; Usage percentage = allocated pages * 100 / total pages.
+    mov esi, memory_usage_label
+    call console_print
+    call pmm_get_total_pages
+    mov ebx, eax
+    test ebx, ebx
+    jz shell_mem_zero_usage
+
+    call pmm_get_free_pages
+    mov edx, ebx
+    sub edx, eax
+    mov eax, edx
+    imul eax, 100
+
+    ; Round to the nearest whole percentage.
+    mov ecx, ebx
+    shr ecx, 1
+    add eax, ecx
+
+    xor edx, edx
+    div ebx
+    call shell_print_decimal
+    jmp shell_mem_usage_suffix
+
+shell_mem_zero_usage:
+    xor eax, eax
+    call shell_print_decimal
+
+shell_mem_usage_suffix:
+    mov esi, percent_suffix
+    call console_print
     call console_newline
 
     call shell_print_prompt
-
     jmp shell_execute_done
 
 
@@ -993,19 +1041,39 @@ seconds_label:
     db " seconds", 0
 
 
-memory_pages_label:
+memory_title:
 
-    db "Free physical pages: ", 0
+    db "Physical Memory", 0
+
+memory_total_label:
+
+    db "Usable: ", 0
+
+memory_free_label:
+
+    db "Free: ", 0
+
+memory_allocated_label:
+
+    db "Used: ", 0
 
 
 memory_kib_label:
 
-    db "Free physical memory: ", 0
+    db "Free RAM: ", 0
+
+memory_usage_label:
+
+    db "Usage: ", 0
 
 
 kib_suffix:
 
     db " KiB", 0
+
+percent_suffix:
+
+    db "%", 0
 
 
 ; ============================================================

@@ -16,6 +16,7 @@ global pmm_init
 global pmm_alloc_page
 global pmm_free_page
 global pmm_get_free_pages
+global pmm_get_total_pages
 
 extern __kernel_start
 extern __kernel_end
@@ -68,6 +69,7 @@ pmm_init:
     rep stosd
 
     mov dword [pmm_free_pages], 0
+    mov dword [pmm_total_pages], 0
 
     ; --------------------------------------------------------
     ; Pass 1: mark enabled usable regions.
@@ -153,6 +155,7 @@ pmm_usable_page_loop:
     bts dword [pmm_usable_bitmap], edx
     btr dword [pmm_bitmap], edx
     inc dword [pmm_free_pages]
+    inc dword [pmm_total_pages]
 
 pmm_usable_page_next:
     add dword [pmm_region_current], PMM_PAGE_SIZE
@@ -363,6 +366,11 @@ pmm_get_free_pages:
     mov eax, [pmm_free_pages]
     ret
 
+; Return the number of pages currently eligible for PMM use.
+pmm_get_total_pages:
+    mov eax, [pmm_total_pages]
+    ret
+
 
 ; ============================================================
 ; Internal helper: reserve a physical address range.
@@ -418,6 +426,8 @@ pmm_reserve_loop:
 
 pmm_reserve_clear_usable:
     btr dword [pmm_usable_bitmap], edx
+    jnc pmm_reserve_next
+    dec dword [pmm_total_pages]
 
 pmm_reserve_next:
     add dword [pmm_reserve_current], PMM_PAGE_SIZE
@@ -443,6 +453,10 @@ pmm_usable_bitmap:
 
 align 4
 pmm_free_pages:
+    resd 1
+
+align 4
+pmm_total_pages:
     resd 1
 
 pmm_map_ptr:

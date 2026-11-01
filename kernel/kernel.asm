@@ -20,6 +20,7 @@ extern pmm_init
 extern pmm_alloc_page
 extern pmm_free_page
 extern pmm_get_free_pages
+extern pmm_get_total_pages
 
 extern heap_init
 extern kmalloc
@@ -176,6 +177,9 @@ e820_print_done:
     call pmm_get_free_pages
     mov [pmm_initial_free_pages], eax
 
+    call pmm_get_total_pages
+    mov [pmm_initial_total_pages], eax
+
     mov esi, pmm_initial_msg
     call serial_print
     mov eax, [pmm_initial_free_pages]
@@ -192,6 +196,11 @@ e820_print_done:
     jz pmm_alloc_failed
 
     mov [pmm_page_a], eax
+
+    ; Allocating a page must not change total usable pages.
+    call pmm_get_total_pages
+    cmp eax, [pmm_initial_total_pages]
+    jne pmm_count_failed
 
     mov esi, pmm_alloc_msg
     call serial_print
@@ -246,6 +255,11 @@ e820_print_done:
 
     cmp eax, 1
     jne pmm_free_failed
+
+    ; Freeing a page must not change total usable pages.
+    call pmm_get_total_pages
+    cmp eax, [pmm_initial_total_pages]
+    jne pmm_count_failed
 
     ; ========================================================
     ; PMM Test 5: Reject a double free.
@@ -324,6 +338,11 @@ e820_print_done:
 
     call pmm_get_free_pages
     cmp eax, [pmm_initial_free_pages]
+    jne pmm_count_failed
+
+    ; All allocations and frees must preserve total usable pages.
+    call pmm_get_total_pages
+    cmp eax, [pmm_initial_total_pages]
     jne pmm_count_failed
 
     mov esi, pmm_final_msg
@@ -1488,6 +1507,9 @@ e820_entry_ptr:
     resd 1
 
 pmm_initial_free_pages:
+    resd 1
+
+pmm_initial_total_pages:
     resd 1
 
 pmm_page_a:
