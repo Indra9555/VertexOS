@@ -1,191 +1,236 @@
-# VertexOS
+<div align="center">
+
+# 🔷 VertexOS
+
+**A learning-focused operating system built from scratch for 32-bit x86**
+
+![Architecture](https://img.shields.io/badge/arch-x86%20(32--bit)-blue)
+![Language](https://img.shields.io/badge/kernel-Assembly-orange)
+![Boot](https://img.shields.io/badge/boot-BIOS-lightgrey)
+![Emulator](https://img.shields.io/badge/emulator-QEMU-green)
+![Status](https://img.shields.io/badge/status-experimental-yellow)
+![License](https://img.shields.io/badge/license-TBD-red)
+
+[Goals](#-project-goals) •
+[Status](#-current-status) •
+[Architecture](#-architecture) •
+[Build](#-building-vertexos) •
+[Roadmap](#-roadmap) •
+[Limitations](#-current-limitations)
+
+</div>
+
+---
 
 VertexOS is a learning-focused operating system built from scratch for the 32-bit x86 architecture.
 
 The project is being developed incrementally to understand how operating systems work internally, from the boot process and protected mode to interrupts, device drivers, memory management, processes, user mode, filesystems, networking, and eventually a graphical environment.
 
-VertexOS is primarily an educational and experimental operating system project.
+> VertexOS is primarily an educational and experimental operating system project.
+
+## 📑 Table of Contents
+
+- [Project Goals](#-project-goals)
+- [Current Status](#-current-status)
+- [Architecture](#-architecture)
+- [Development Environment](#-development-environment)
+- [Boot Process](#-boot-process)
+- [Kernel](#-kernel)
+- [Interrupt System](#-interrupt-system)
+- [Timer and Timekeeping](#-timer-and-timekeeping)
+- [Keyboard Driver](#-keyboard-driver)
+- [Console](#-console)
+- [Kernel Shell](#-kernel-shell)
+- [Physical Memory Manager](#-physical-memory-manager)
+- [Kernel Heap](#-kernel-heap)
+- [Kernel Panic](#-kernel-panic)
+- [Kernel Utility Library](#-kernel-utility-library)
+- [Serial Debugging](#-serial-debugging)
+- [Memory Layout](#-memory-layout)
+- [Build System](#-build-system)
+- [Building VertexOS](#-building-vertexos)
+- [Project Structure](#-project-structure)
+- [Development Philosophy](#-development-philosophy)
+- [Roadmap](#-roadmap)
+- [Current Limitations](#-current-limitations)
+- [License](#-license)
 
 ---
 
-## Project Goals
+## 🎯 Project Goals
 
 The main goal of VertexOS is to understand operating-system internals by implementing its major components step by step rather than relying on an existing kernel or operating-system framework.
 
 The project focuses on understanding:
 
-- How a computer boots
-- How the CPU enters protected mode
-- How a kernel is loaded and executed
-- How interrupts work
-- How hardware devices communicate with the CPU
-- How physical memory is managed
-- How paging and virtual memory work
-- How processes and scheduling work
-- How user programs interact with the kernel
-- How filesystems and storage work
-- How networking works at a low level
-- How operating-system security mechanisms are designed
+| | |
+|---|---|
+| 🔌 How a computer boots | 🧠 How physical memory is managed |
+| 🛡️ How the CPU enters protected mode | 📄 How paging and virtual memory work |
+| 📦 How a kernel is loaded and executed | ⚙️ How processes and scheduling work |
+| ⚡ How interrupts work | 👤 How user programs interact with the kernel |
+| 🔧 How hardware devices communicate with the CPU | 💾 How filesystems and storage work |
+| 🌐 How networking works at a low level | 🔒 How operating-system security mechanisms are designed |
 
 ---
 
-## Current Status
+## 📊 Current Status
 
 VertexOS currently boots a custom kernel in 32-bit x86 protected mode and provides a functional kernel environment with hardware interrupt handling, keyboard input, a command shell, timekeeping, physical memory management, a kernel heap, kernel panic handling, and serial debugging.
 
-### Implemented
+### ✅ Implemented
 
-- Custom BIOS bootloader
-- BIOS disk access using INT 13h extensions
-- x86 protected mode
-- Global Descriptor Table (GDT)
-- 32-bit kernel
-- VGA text-mode console
-- Console cursor management
-- Screen scrolling
-- Keyboard driver
-- Shift and Caps Lock handling
-- Physical Caps Lock LED synchronization
-- Interrupt Descriptor Table (IDT)
-- Programmable Interrupt Controller (PIC)
-- CPU exception handling
-- Programmable Interval Timer (PIT)
-- Kernel tick counter
-- Kernel uptime
-- Kernel timekeeping interface
-- Interactive kernel shell
-- Kernel utility library
+<details open>
+<summary><b>Boot and CPU</b></summary>
+
+- [x] Custom BIOS bootloader
+- [x] BIOS disk access using INT 13h extensions
+- [x] x86 protected mode
+- [x] Global Descriptor Table (GDT)
+- [x] 32-bit kernel
+- [x] Interrupt Descriptor Table (IDT)
+- [x] Programmable Interrupt Controller (PIC)
+- [x] CPU exception handling
+
+</details>
+
+<details open>
+<summary><b>Console and Input</b></summary>
+
+- [x] VGA text-mode console
+- [x] Console cursor management
+- [x] Screen scrolling
+- [x] Keyboard driver
+- [x] Shift and Caps Lock handling
+- [x] Physical Caps Lock LED synchronization
+- [x] Interactive kernel shell
+
+</details>
+
+<details open>
+<summary><b>Time and Kernel Services</b></summary>
+
+- [x] Programmable Interval Timer (PIT)
+- [x] Kernel tick counter
+- [x] Kernel uptime
+- [x] Kernel timekeeping interface
+- [x] Kernel utility library
   - String operations
   - Memory operations
   - Number conversion utilities
-- Physical memory manager (PMM)
-- E820 memory-map processing
-- Physical page allocation and freeing
-- Physical memory usage statistics
-- Kernel heap
-- Kernel panic system
-- COM1 serial debugging
-- Kernel image size validation
-- Boot image validation
-- Automated kernel-sector boundary tests
-- QEMU-based development and testing
+- [x] Kernel panic system
+- [x] COM1 serial debugging
 
-### Currently Being Developed
+</details>
 
-- Paging
-- Virtual memory
-- Improved memory diagnostics
-- Storage subsystem
-- Process management
-- Scheduler
-- User mode
+<details open>
+<summary><b>Memory</b></summary>
 
-### Planned
+- [x] Physical memory manager (PMM)
+- [x] E820 memory-map processing
+- [x] Physical page allocation and freeing
+- [x] Physical memory usage statistics
+- [x] Kernel heap
 
-- ATA/disk driver
-- Filesystem
-- Virtual File System (VFS)
-- Improved shell
-- System calls
-- User programs
-- Inter-process communication
-- Hardware abstraction
-- Networking
-- Security mechanisms
-- Graphical interface
+</details>
+
+<details open>
+<summary><b>Build and Testing</b></summary>
+
+- [x] Kernel image size validation
+- [x] Boot image validation
+- [x] Automated kernel-sector boundary tests
+- [x] QEMU-based development and testing
+
+</details>
+
+### 🚧 Currently Being Developed
+
+- [ ] Paging
+- [ ] Virtual memory
+- [ ] Improved memory diagnostics
+- [ ] Storage subsystem
+- [ ] Process management
+- [ ] Scheduler
+- [ ] User mode
+
+### 🗺️ Planned
+
+- [ ] ATA/disk driver
+- [ ] Filesystem
+- [ ] Virtual File System (VFS)
+- [ ] Improved shell
+- [ ] System calls
+- [ ] User programs
+- [ ] Inter-process communication
+- [ ] Hardware abstraction
+- [ ] Networking
+- [ ] Security mechanisms
+- [ ] Graphical interface
 
 ---
 
-## Architecture
+## 🏗️ Architecture
 
 ### Target Architecture
 
 | Component | Details |
 |---|---|
-| CPU architecture | x86 |
-| Kernel mode | 32-bit protected mode |
-| Kernel type | Custom experimental kernel |
-| Boot method | BIOS |
-| Bootloader | Custom bootloader |
-| Console | VGA text mode |
-| Interrupt controller | 8259 PIC |
-| Timer | Intel 8253/8254-compatible PIT |
-| Keyboard interface | PS/2 |
-| Serial interface | COM1 UART |
-| Emulator | QEMU |
+| **CPU architecture** | x86 |
+| **Kernel mode** | 32-bit protected mode |
+| **Kernel type** | Custom experimental kernel |
+| **Boot method** | BIOS |
+| **Bootloader** | Custom bootloader |
+| **Console** | VGA text mode |
+| **Interrupt controller** | 8259 PIC |
+| **Timer** | Intel 8253/8254-compatible PIT |
+| **Keyboard interface** | PS/2 |
+| **Serial interface** | COM1 UART |
+| **Emulator** | QEMU |
 
 ---
 
-## Development Environment
+## 🛠️ Development Environment
 
 VertexOS is currently developed inside Ubuntu running through WSL2.
 
-### Tools
-
-- NASM
-- GNU ld
-- GNU objcopy
-- GNU Make
-- GNU binutils
-- Git
-- QEMU
-- Ubuntu on WSL2
+| Tool | Purpose |
+|---|---|
+| `NASM` | Assembler |
+| `GNU ld` | Linker |
+| `GNU objcopy` | ELF to flat binary conversion |
+| `GNU Make` | Build system |
+| `GNU binutils` | Binary utilities |
+| `Git` | Version control |
+| `QEMU` | Emulator |
+| `Ubuntu on WSL2` | Development environment |
 
 ---
 
-## Boot Process
+## 🚀 Boot Process
 
 The current boot process is intentionally implemented from scratch.
 
-The basic flow is:
-
-```text
-BIOS
-  |
-  v
-Custom Boot Sector
-  |
-  v
-Load Stage 2 Bootloader
-  |
-  v
-Read E820 Memory Map
-  |
-  v
-Load Kernel from Disk
-  |
-  v
-Load GDT
-  |
-  v
-Enter 32-bit Protected Mode
-  |
-  v
-Jump to Kernel
-  |
-  v
-Kernel Initialization
-  |
-  +--> Console
-  |
-  +--> Serial Debugging
-  |
-  +--> IDT
-  |
-  +--> PIC
-  |
-  +--> PIT / Timekeeping
-  |
-  +--> Keyboard
-  |
-  +--> Physical Memory Manager
-  |
-  +--> Kernel Heap
-  |
-  +--> Shell
-  |
-  v
-Kernel Main Loop
+```mermaid
+flowchart TD
+    A[BIOS] --> B[Custom Boot Sector]
+    B --> C[Load Stage 2 Bootloader]
+    C --> D[Read E820 Memory Map]
+    D --> E[Load Kernel from Disk]
+    E --> F[Load GDT]
+    F --> G[Enter 32-bit Protected Mode]
+    G --> H[Jump to Kernel]
+    H --> I[Kernel Initialization]
+    I --> I1[Console]
+    I --> I2[Serial Debugging]
+    I --> I3[IDT]
+    I --> I4[PIC]
+    I --> I5[PIT / Timekeeping]
+    I --> I6[Keyboard]
+    I --> I7[Physical Memory Manager]
+    I --> I8[Kernel Heap]
+    I --> I9[Shell]
+    I1 & I2 & I3 & I4 & I5 & I6 & I7 & I8 & I9 --> J[Kernel Main Loop]
 ```
 
 The bootloader currently loads the kernel from disk into memory at:
@@ -198,7 +243,7 @@ The E820 memory map is passed to the kernel during the protected-mode handoff.
 
 ---
 
-## Kernel
+## 🧩 Kernel
 
 The VertexOS kernel is currently implemented primarily in x86 assembly.
 
@@ -214,7 +259,7 @@ The build system calculates the number of sectors required by the kernel and val
 
 ---
 
-## Interrupt System
+## ⚡ Interrupt System
 
 VertexOS currently contains an interrupt subsystem based on the x86 Interrupt Descriptor Table.
 
@@ -228,12 +273,12 @@ Implemented interrupt components include:
 
 The PIC is remapped so that hardware IRQs do not conflict with CPU exception vectors.
 
-Current hardware interrupt mapping includes:
+### Hardware Interrupt Mapping
 
-```text
-IRQ0 -> 0x20 Timer
-IRQ1 -> 0x21 Keyboard
-```
+| IRQ | Vector | Device |
+|---|---|---|
+| IRQ0 | `0x20` | Timer |
+| IRQ1 | `0x21` | Keyboard |
 
 ### CPU Exceptions
 
@@ -252,28 +297,19 @@ For example, a divide-by-zero exception can be detected and reported by the kern
 
 ---
 
-## Timer and Timekeeping
+## ⏱️ Timer and Timekeeping
 
 VertexOS uses the Programmable Interval Timer (PIT) to generate periodic timer interrupts.
 
-The current timer frequency is approximately:
-
-```text
-100 Hz
-```
+The current timer frequency is approximately **100 Hz**.
 
 The kernel maintains a global tick counter.
 
-The shell currently provides:
-
-- `ticks`
-- `uptime`
-
-These commands allow the kernel timer and basic timekeeping system to be tested interactively.
+The shell currently provides `ticks` and `uptime`. These commands allow the kernel timer and basic timekeeping system to be tested interactively.
 
 ---
 
-## Keyboard Driver
+## ⌨️ Keyboard Driver
 
 VertexOS includes a PS/2 keyboard driver.
 
@@ -296,7 +332,7 @@ The keyboard driver communicates directly with the PS/2 controller ports.
 
 ---
 
-## Console
+## 🖥️ Console
 
 VertexOS currently uses VGA text mode for its console.
 
@@ -312,21 +348,13 @@ The console subsystem provides:
 - Screen-boundary protection
 - Console clearing
 
-The VGA text buffer is located at:
-
-```text
-0xB8000
-```
-
-with a standard `80 x 25` text-mode display.
+The VGA text buffer is located at `0xB8000` with a standard `80 x 25` text-mode display.
 
 ---
 
-## Kernel Shell
+## 💻 Kernel Shell
 
 VertexOS currently contains an interactive kernel shell.
-
-Available commands include:
 
 | Command | Description |
 |---|---|
@@ -349,11 +377,11 @@ The `mem` command currently displays:
 - Free physical memory in KiB
 - Memory usage percentage
 
-The shell operates directly inside the kernel and is currently not a user-space program.
+> The shell operates directly inside the kernel and is currently not a user-space program.
 
 ---
 
-## Physical Memory Manager
+## 🧠 Physical Memory Manager
 
 VertexOS contains a physical memory manager (PMM) that processes the BIOS E820 memory map.
 
@@ -370,11 +398,11 @@ The PMM currently supports:
 
 The PMM uses a bitmap-based page allocation system.
 
-The current implementation manages physical memory within a configured maximum address range. Paging and virtual memory are planned as separate future milestones.
+> The current implementation manages physical memory within a configured maximum address range. Paging and virtual memory are planned as separate future milestones.
 
 ---
 
-## Kernel Heap
+## 📦 Kernel Heap
 
 VertexOS includes a kernel heap subsystem for dynamic kernel memory allocation.
 
@@ -382,17 +410,17 @@ The heap is currently part of the kernel's memory-management foundation. Its cap
 
 ---
 
-## Kernel Panic
+## 🚨 Kernel Panic
 
 VertexOS contains a kernel panic subsystem for unrecoverable conditions and manual testing.
 
 The panic system:
 
-- Disables interrupts
-- Displays a panic header
-- Displays the panic reason
-- Displays a halted-system message
-- Permanently halts the CPU
+1. Disables interrupts
+2. Displays a panic header
+3. Displays the panic reason
+4. Displays a halted-system message
+5. Permanently halts the CPU
 
 Example:
 
@@ -406,29 +434,20 @@ System halted.
 
 ---
 
-## Kernel Utility Library
+## 📚 Kernel Utility Library
 
 VertexOS contains a small kernel utility library.
 
-Current string and memory functions include:
-
-- `strlen`
-- `strcmp`
-- `memset`
-- `memcpy`
-- `memcmp`
-- `memmove`
-
-Number conversion utilities include:
-
-- `itoa`
-- `itoa_hex`
+| Category | Functions |
+|---|---|
+| **String and memory** | `strlen`, `strcmp`, `memset`, `memcpy`, `memcmp`, `memmove` |
+| **Number conversion** | `itoa`, `itoa_hex` |
 
 These utilities will become increasingly important as the kernel grows.
 
 ---
 
-## Serial Debugging
+## 🔌 Serial Debugging
 
 VertexOS includes a COM1 serial debugging driver.
 
@@ -460,7 +479,7 @@ Serial debugging will be used extensively as VertexOS becomes more complex, espe
 
 ---
 
-## Memory Layout
+## 🗺️ Memory Layout
 
 | Region | Address |
 |---|---|
@@ -472,73 +491,57 @@ The bootloader uses a protected-mode GDT and establishes a kernel stack before t
 
 The physical memory manager uses the E820 memory map to identify usable and reserved regions.
 
-The memory layout will evolve significantly when paging and virtual memory are introduced.
+> The memory layout will evolve significantly when paging and virtual memory are introduced.
 
 ---
 
-## Build System
+## 🔨 Build System
 
 VertexOS uses GNU Make to assemble, link, and build the final disk image.
 
-The major build stages are:
-
-```text
-NASM
-  |
-  v
-ELF32 Object Files
-  |
-  v
-GNU ld
-  |
-  v
-kernel.elf
-  |
-  v
-objcopy
-  |
-  v
-kernel.bin
-  |
-  v
-Boot Sector + Stage 2 + Kernel
-  |
-  v
-VertexOS.img
+```mermaid
+flowchart TD
+    A[NASM] --> B[ELF32 Object Files]
+    B --> C[GNU ld]
+    C --> D[kernel.elf]
+    D --> E[objcopy]
+    E --> F[kernel.bin]
+    F --> G["Boot Sector + Stage 2 + Kernel"]
+    G --> H[VertexOS.img]
 ```
 
 The build system also performs image validation and automated kernel-sector boundary tests.
 
 ---
 
-## Building VertexOS
+## ▶️ Building VertexOS
 
-Clone the repository and enter the project:
+**1. Clone the repository and enter the project**
 
 ```bash
 git clone https://github.com/Indra9555/VertexOS.git
 cd VertexOS
 ```
 
-Build the operating system:
+**2. Build the operating system**
 
 ```bash
 make
 ```
 
-Run it using QEMU:
+**3. Run it using QEMU**
 
 ```bash
 make run
 ```
 
-Run build and image validation checks:
+**4. Run build and image validation checks**
 
 ```bash
 make check
 ```
 
-Clean generated build files:
+**5. Clean generated build files**
 
 ```bash
 make clean
@@ -546,7 +549,10 @@ make clean
 
 ---
 
-## Project Structure
+## 📁 Project Structure
+
+<details>
+<summary><b>Click to expand</b></summary>
 
 ```text
 VertexOS/
@@ -601,9 +607,11 @@ VertexOS/
 └── README.md
 ```
 
+</details>
+
 ---
 
-## Development Philosophy
+## 🧭 Development Philosophy
 
 VertexOS is intentionally being developed incrementally.
 
@@ -611,140 +619,54 @@ Each subsystem is implemented, tested, and verified before moving to the next ma
 
 The development process generally follows:
 
-```text
-Design
-  ↓
-Implement
-  ↓
-Build
-  ↓
-Run in QEMU
-  ↓
-Test
-  ↓
-Debug
-  ↓
-Git checkpoint
-  ↓
-Next subsystem
+```mermaid
+flowchart LR
+    A[Design] --> B[Implement] --> C[Build] --> D[Run in QEMU] --> E[Test] --> F[Debug] --> G[Git checkpoint] --> H[Next subsystem]
 ```
 
-The goal is not simply to produce a bootable operating system, but to understand why each component exists and how the components interact.
+> The goal is not simply to produce a bootable operating system, but to understand why each component exists and how the components interact.
 
 ---
 
-## Roadmap
+## 🛣️ Roadmap
 
-### Phase 0 — Foundation
-
-- Project structure
-- Build system
-- Git repository
-- Custom bootloader
-- QEMU boot testing
-
-### Phase 1 — Kernel Core
-
-- Protected mode
-- GDT
-- Kernel entry point
-- VGA console
-- IDT
-- PIC
-- CPU exceptions
-- Keyboard driver
-- Kernel shell
-
-### Phase 2 — Kernel Services
-
-- PIT timer
-- Kernel tick counter
-- Timekeeping
-- Kernel utility library
-- Kernel panic system
-- Serial debugging
-
-### Phase 3 — Memory Management
-
-- E820 memory map processing
-- Physical memory manager
-- Physical page allocation and freeing
-- Kernel heap
-- Paging
-- Virtual memory
-
-### Phase 4 — Storage
-
-- Disk driver
-- ATA support
-- Block device layer
-- Filesystem
-- Virtual File System
-
-### Phase 5 — Processes
-
-- Process abstraction
-- Kernel task management
-- Context switching
-- Scheduler
-- User mode
-
-### Phase 6 — System Interface
-
-- System calls
-- User programs
-- Process isolation
-- Inter-process communication
-
-### Phase 7 — Hardware and Networking
-
-- Hardware abstraction
-- Additional device drivers
-- Network driver
-- Network stack
-- Basic networking utilities
-
-### Phase 8 — User Experience
-
-- Advanced shell
-- User utilities
-- Graphical interface
-- Basic desktop environment
-
-### Phase 9 — Hardening and Tooling
-
-- Memory protection
-- Kernel/user separation
-- Security mechanisms
-- Better diagnostics
-- Kernel debugging tools
-- Automated kernel-sector boundary testing
-- Documentation improvements
+| Phase | Name | Items |
+|:---:|---|---|
+| **0** | Foundation | Project structure • Build system • Git repository • Custom bootloader • QEMU boot testing |
+| **1** | Kernel Core | Protected mode • GDT • Kernel entry point • VGA console • IDT • PIC • CPU exceptions • Keyboard driver • Kernel shell |
+| **2** | Kernel Services | PIT timer • Kernel tick counter • Timekeeping • Kernel utility library • Kernel panic system • Serial debugging |
+| **3** | Memory Management | E820 memory map processing • Physical memory manager • Physical page allocation and freeing • Kernel heap • Paging • Virtual memory |
+| **4** | Storage | Disk driver • ATA support • Block device layer • Filesystem • Virtual File System |
+| **5** | Processes | Process abstraction • Kernel task management • Context switching • Scheduler • User mode |
+| **6** | System Interface | System calls • User programs • Process isolation • Inter-process communication |
+| **7** | Hardware and Networking | Hardware abstraction • Additional device drivers • Network driver • Network stack • Basic networking utilities |
+| **8** | User Experience | Advanced shell • User utilities • Graphical interface • Basic desktop environment |
+| **9** | Hardening and Tooling | Memory protection • Kernel/user separation • Security mechanisms • Better diagnostics • Kernel debugging tools • Automated kernel-sector boundary testing • Documentation improvements |
 
 ---
 
-## Current Limitations
+## ⚠️ Current Limitations
 
-VertexOS is an experimental educational operating system and is not intended for production use.
+> VertexOS is an experimental educational operating system and is not intended for production use.
 
 Current limitations include:
 
-- 32-bit protected-mode kernel
-- Limited hardware support
-- No paging or virtual memory yet
-- Limited physical memory management
-- No filesystem
-- No user mode
-- No processes
-- No scheduler
-- No system calls
-- No networking stack
-- No graphical environment
+- ❌ 32-bit protected-mode kernel
+- ❌ Limited hardware support
+- ❌ No paging or virtual memory yet
+- ❌ Limited physical memory management
+- ❌ No filesystem
+- ❌ No user mode
+- ❌ No processes
+- ❌ No scheduler
+- ❌ No system calls
+- ❌ No networking stack
+- ❌ No graphical environment
 
 These limitations are expected and will be addressed progressively as development continues.
 
 ---
 
-## License
+## 📜 License
 
 License: To be decided.
